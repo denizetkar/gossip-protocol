@@ -1,0 +1,28 @@
+------IMPLEMENTATION----------------
+Brahms implementation.
+------LANGUAGE & OS-----------------
+Go language with many networking libraries.
+Windows OS is chosen without loss of cross compatibility thanks to Go language. Because Windows is already what authors are comfortable with and have been using.
+------BUILD SYSTEMS-----------------
+The build system is 'go install' but makefile will also be made available.
+------TEST & CODE QUALITY-----------
+Specifications for both P2P and API will be documented.
+Unit tests for checking P2P functionality and integration tests for checking API functionality will be prepared according to the relevant specifications.
+'gopls' language server is used for formatting and diagnostics to ensure code readability.
+'govet' is used for checking the correctness of the code to ensure code quality.
+
+Wireshark for packet sniffing and network debugging.
+------AVAILABLE LIBRARIES-----------
+("net", "encoding/*", "io", "crypto/*", "protobuf") just to name a few.
+------LICENCE-----------------------
+MIT general license OR GNU license for making the source code available to everyone. So that the coding community can help make the module better in terms of security etc.
+------RELEVANT EXPERIENCE-----------
+Golang: Intermediate
+Distributed Systems: Beginner
+Network Programming: Beginner
+
+Golang: Beginner
+Distributed Systems: Beginner
+Network Programming: Intermediate
+-----WORKLOAD-----------------------
+We divide the whole work into 3 parts: API communication, P2P communication and control logic. Then we divide workload into communication and control logic. Then as soon as someone finishes their work, we start dividing the remaining tasks into 2 and complete them.
