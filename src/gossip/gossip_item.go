@@ -1,16 +1,16 @@
 package main
 
-// RawGossipItemDataType is the 16-bit unsigned integer
+// GossipItemDataType is the 16-bit unsigned integer
 // that specifies the 'data type' of the gossip item as
 // described in the specifications.pdf .
-type RawGossipItemDataType uint16
+type GossipItemDataType uint16
 
-// RawGossipItem holds the Gossip item coming from
+// GossipItem holds the Gossip item coming from
 // a "GOSSIP ANNOUCE" api call.
-type RawGossipItem struct {
-	dataType RawGossipItemDataType
+type GossipItem struct {
+	dataType GossipItemDataType
 	// data has to be of type 'string' instead of '[]byte'
-	// so that RawGossipItem struct is hashable for use in maps.
+	// so that GossipItem struct is hashable for use in maps.
 	data string
 }
 
@@ -27,10 +27,10 @@ type GossipItemState struct {
 }
 
 // GossipItemInfoGossiper contains the current state of the corresponding
-// RawGossipItem and the list of peers to gossip this item. The
+// GossipItem and the list of peers to gossip this item. The
 // 'peerList' is going to be a random subset of the current view list.
 // This struct is meant to be used as a value in a
-// map[RawGossipItem]*GossipItemInfoGossiper by the Gossiper.
+// map[GossipItem]*GossipItemInfoGossiper by the Gossiper.
 type GossipItemInfoGossiper struct {
 	state    GossipItemState
 	peerList []Peer
