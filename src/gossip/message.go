@@ -11,6 +11,10 @@ const (
 	// PeerRemoveMSG is a command from the Membership controller to
 	// the Central controller for removing a peer and its connection.
 	PeerRemoveMSG
+	// PeerDisconnectedMSG is a notification from the Central controller to
+	// the Membership controller that the peer is abruptly disconnected so that
+	// it can also remove it from its viewList.
+	PeerDisconnectedMSG
 	// ProbePeerRequestMSG is a command from the Membership controller to
 	// the Central controller for probing a peer.
 	ProbePeerRequestMSG
@@ -21,7 +25,7 @@ const (
 	// the Central controller for sending a push request to a peer.
 	MembershipPushRequestMSG
 	// MembershipIncomingPushRequestMSG is a notification from the Central controller to
-	// the Membership controller for an incoming MembershipPushRequest from the peer specified.
+	// the Membership controller for an incoming MembershipPushRequestMSGPayload from the peer specified.
 	MembershipIncomingPushRequestMSG
 	// MembershipPullRequestMSG is a command from the Membership controller to
 	// the Central controller for sending a pull request to a peer.
@@ -33,8 +37,17 @@ const (
 	// the Central controller for the incoming MembershipPullRequest from the peer specified.
 	MembershipPullReplyMSG
 	// MembershipIncomingPullReplyMSG is a notification from the Central controller to
-	// the Membership controller after receiving MembershipPullReply from the peer.
+	// the Membership controller after receiving MembershipPullReplyMSGPayload from the peer.
 	MembershipIncomingPullReplyMSG
+	// MembershipCrashedMSG is a notification from the Membership controller to
+	// the Central controller that it crashed.
+	MembershipCrashedMSG
+	// MembershipCloseMSG is a command from the Central controller to the
+	// Membership controller to close gracefully as soon as possible.
+	MembershipCloseMSG
+	// MembershipClosedMSG is a notification from the Membership controller to the
+	// Central controller for closing gracefully as requested.
+	MembershipClosedMSG
 
 	// RandomPeerListRequestMSG is a command from the Gossiper to
 	// the Central controller for requesting a random subset of peers.
@@ -58,8 +71,11 @@ const (
 	// the Gossiper to entirely remove the given API client.
 	GossipUnnofityMSG
 	// GossipPushMSG is a command from the Gossiper to the Central
-	// controller to send the GossipPush to the peer specified.
+	// controller to send the GossipPushMSGPayload to the peer specified.
 	GossipPushMSG
+	// GossipIncomingPushMSG is a notification from the Central controller
+	// to the Gossiper for the arrival of a GossipPushMSGPayload.
+	GossipIncomingPushMSG
 	// GossipPullRequestMSG is a command from the Gossiper to the Central
 	// controller to send the GossipPullRequest to the peer specified.
 	GossipPullRequestMSG
@@ -72,6 +88,15 @@ const (
 	// GossipIncomingPullReplyMSG is a notification from the Central controller to the
 	// Gossiper after receiving GossipPullReply from the peer.
 	GossipIncomingPullReplyMSG
+	// GossiperCrashedMSG is a notification from the Gossiper to
+	// the Central controller that it crashed.
+	GossiperCrashedMSG
+	// GossiperCloseMSG is a command from the Central controller to the
+	// Gossiper to close gracefully as soon as possible.
+	GossiperCloseMSG
+	// GossiperClosedMSG is a notification from the Gossiper to the
+	// Central controller for closing gracefully as requested.
+	GossiperClosedMSG
 
 	// TODO: Add message types in intervals of 1000 for other submodules such as:
 	//       APIListener, P2PListener, APIEndpoint, P2PEndpoint.
@@ -83,6 +108,10 @@ const (
 // copy of the message content if necessary!
 type AnyMessage interface{}
 
+// void is the payload type for all internal message types which
+// do not need any payload.
+type void struct{}
+
 // InternalMessage is a generic message struct for sending
 // any information between the goroutines of the Gossip module.
 type InternalMessage struct {
@@ -90,6 +119,4 @@ type InternalMessage struct {
 	Payload AnyMessage
 }
 
-// TODO: Create message struct types for all submodules:
-//       CentralController, Gossiper, MembershipController,
-//       APIListener, P2PListener, APIEndpoint, P2PEndpoint.
+// TODO: Create payload types for all internal message types as necessary.

@@ -2,17 +2,19 @@ package main
 
 import (
 	"crypto/securecomm"
+	"net"
 )
 
 // Peer is just a placeholder for the TCP\IP address
 // of a peer.
 type Peer struct {
-	addr string
-	// isOutgoing indicates whether this endpoint was initiated
-	// by this node or the remote node. This endpoint is
-	// initiated by this node IF AND ONLY IF the remote node
-	// is in the 'viewList' OR is in the 'awaitingRemovalViewList'.
-	isOutgoing bool
+	Addr string
+}
+
+// ValidateAddr tries to validate the address of a peer.
+func (peer *Peer) ValidateAddr() error {
+	_, err := net.ResolveTCPAddr("tcp", peer.Addr)
+	return err
 }
 
 // PeerReaderState is a const type for describing the execution state of an
@@ -74,6 +76,11 @@ type P2PEndpoint struct {
 	MsgOutQueue chan InternalMessage
 	// sigCh is used for signaling the reader goroutine to close gracefully.
 	sigCh chan struct{}
+	// isOutgoing indicates whether this endpoint was initiated
+	// by this node or the remote node. This endpoint is
+	// initiated by this node IF AND ONLY IF the remote node
+	// is in the 'viewList' OR is in the 'awaitingRemovalViewList'.
+	isOutgoing bool
 }
 
 // P2PListener is the goroutine that will listen for incoming P2P connection
@@ -105,6 +112,8 @@ func NewP2PListener(p2pAddr string, outQ chan InternalMessage, config *securecom
 
 func (p2pListener *P2PListener) listenerRoutine() {
 	// TODO: fill here
+
+	// TODO: notify the Central controller before closing/returning!
 }
 
 // RunListenerGoroutine runs the goroutine that will listen
@@ -112,6 +121,14 @@ func (p2pListener *P2PListener) listenerRoutine() {
 // the Central controller about it.
 func (p2pListener *P2PListener) RunListenerGoroutine() {
 	go p2pListener.listenerRoutine()
+}
+
+// Close method initiates a graceful closing operation without blocking.
+func (p2pListener *P2PListener) Close() error {
+	// Closing the 'sigCh' channel signals the listener to close itself.
+	close(p2pListener.sigCh)
+	p2pListener.ln.Close()
+	return nil
 }
 
 func (p2pEndpoint *P2PEndpoint) readerRoutine() {
