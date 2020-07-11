@@ -8,11 +8,25 @@ type GossipItemDataType uint16
 // GossipItem holds the Gossip item coming from
 // a "GOSSIP ANNOUCE" api call.
 type GossipItem struct {
-	dataType GossipItemDataType
-	// data has to be of type 'string' instead of '[]byte'
+	DataType GossipItemDataType
+	// Data has to be of type 'string' instead of '[]byte'
 	// so that GossipItem struct is hashable for use in maps.
-	data string
+	Data string
 }
+
+// MedianCounterState is the type for states A, B, C and D as
+// described by the "median-counter algorithm".
+type MedianCounterState uint8
+
+// A gossip item with state A cannot exist!
+const (
+	// MedianCounterStateB is the state B.
+	MedianCounterStateB MedianCounterState = iota
+	// MedianCounterStateC is the state C.
+	MedianCounterStateC
+	// MedianCounterStateD is the state D.
+	MedianCounterStateD
+)
 
 // GossipItemState is the struct for holding the counter,
 // the threshold for state B log(log(n)), the threshold for
@@ -20,10 +34,10 @@ type GossipItem struct {
 // as described by the "median-counter algorithm":
 // https://zoo.cs.yale.edu/classes/cs426/2012/bib/karp00randomized.pdf
 type GossipItemState struct {
-	counter uint8
-	bMax    uint8
-	cMax    uint8
-	ttl     uint8
+	state      MedianCounterState
+	counter    uint8
+	ttl        uint8
+	medianRule int8
 }
 
 // GossipItemInfoGossiper contains the current state of the corresponding
