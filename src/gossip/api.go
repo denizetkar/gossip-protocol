@@ -13,14 +13,14 @@ type APIClient struct {
 
 // APIClientInfoGossiperNotifyDataTypesType is the type of variable
 // stored in APIClientInfoGossiper::notifyDataTypes.
-type APIClientInfoGossiperNotifyDataTypesType RawGossipItemDataType
+type APIClientInfoGossiperNotifyDataTypesType GossipItemDataType
 
 // APIClientInfoGossiper holds the gossip item data types for which the
 // API client wants to be notified by the Gossiper controller.
 // Therefore, this struct is meant to be used as a value in a
 // map[APIClient]*APIClientInfoGossiper by the Gossiper controller.
 type APIClientInfoGossiper struct {
-	notifyDataTypes *set.Set
+	notifyDataTypes set.Set
 }
 
 // APIClientReaderState is a const type for describing the execution state of an
@@ -109,6 +109,8 @@ func NewAPIListener(apiAddr string, outQ chan InternalMessage) (*APIListener, er
 
 func (apiListener *APIListener) listenerRoutine() {
 	// TODO: fill here
+
+	// TODO: notify the Central controller before closing/returning!
 }
 
 // RunListenerGoroutine runs the goroutine that will listen
@@ -116,6 +118,14 @@ func (apiListener *APIListener) listenerRoutine() {
 // the Central controller about it.
 func (apiListener *APIListener) RunListenerGoroutine() {
 	go apiListener.listenerRoutine()
+}
+
+// Close method initiates a graceful closing operation without blocking.
+func (apiListener *APIListener) Close() error {
+	// Closing the 'sigCh' channel signals the listener to close itself.
+	close(apiListener.sigCh)
+	apiListener.ln.Close()
+	return nil
 }
 
 func (apiEndpoint *APIEndpoint) readerRoutine() {
