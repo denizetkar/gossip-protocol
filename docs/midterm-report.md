@@ -66,9 +66,8 @@ If too much data is transmitted 'io.LimitedReader' throws an error so that the c
 ### P2P Communication Tunnel 
 The communication between the peers will be done by implementing an own level 4 protocol.
 This protocol includes a Proof of Work (PoW) concept, so that every time an unknown peer is contacted, both peers would need to show that they are legitimate, thereby preventing Sybil attacks.
-PoW works by including a cryptographic hash of the handshake message into the sent message.
+PoW works by choosing a Nonce such that the cryptographic hash the handshake message has certain commonly expected properties (being less than a predetermined number 'k').
 The handshake includes a DHE public key, a RSA public key which is shared out of band, a time stamp, ip:port and a nonce.
-The nonce has to be chosen so that the cryptographic hash has a special property such as for example having a specific amount of zeros a the beginning of the hash.
 For the specific hash algorithm for PoW, we settled for Scrypt as it is difficult to create Application-specific integrated circuits (ASICs) for that algorithm, giving no peer a too big disadvantage.
 
 As already discussed, too much transmitted data is handled by terminating the communication endpoint as we expect such a situation only to be created with a malicious intent.
