@@ -1,13 +1,21 @@
 package main
 
 import (
+	"crypto/securecomm"
 	"datastruct/indexedmap"
 	"fmt"
 	"math"
+	mrand "math/rand"
 	"net"
 	"os"
 	"strings"
+	"time"
 )
+
+// init is an initialization function for 'main' package, called by Go.
+func init() {
+	mrand.Seed(time.Now().Unix())
+}
 
 // GetOutboundIP attempts to find the public IP of the
 // outgoing TCP or UDP connections.
@@ -22,12 +30,6 @@ func GetOutboundIP() (string, error) {
 	return localAddr[0:idx], nil
 }
 
-// CentralControllerViewListKeyType is the key type of CentralController::viewList.
-type CentralControllerViewListKeyType Peer
-
-// CentralControllerViewListValueType is the value type of CentralController::viewList.
-type CentralControllerViewListValueType *PeerInfoCentral
-
 // CentralControllerState is a struct type for describing not only the state
 // of the Central controller but also for a summary of other running goroutines.
 type CentralControllerState struct {
@@ -38,6 +40,12 @@ type CentralControllerState struct {
 	isP2PListenerRunning          bool
 	totalGoroutines               uint32
 }
+
+// CentralControllerViewListKeyType is the key type of CentralController::viewList.
+type CentralControllerViewListKeyType Peer
+
+// CentralControllerViewListValueType is the value type of CentralController::viewList.
+type CentralControllerViewListValueType *PeerInfoCentral
 
 // CentralController contains core logic of the gossip module.
 type CentralController struct {
@@ -55,13 +63,20 @@ type CentralController struct {
 	apiListener *APIListener
 	// apiListener is the p2p listener goroutine
 	p2pListener *P2PListener
-	// viewList is the current map of (Peer, PeerInfoCentral) pairs for gossiping. It is of size O(n^0.25).
+	// viewList is the current map of (Peer, *PeerInfoCentral) pairs for gossiping. It is of size O(n^0.25).
 	viewList    *indexedmap.IndexedMap
 	viewListCap uint16
-	// awaitingRemovalViewList is the current map of (Peer, PeerInfoCentral) pairs awaiting deletion.
+	// awaitingRemovalViewList is the current map of (Peer, *PeerInfoCentral) pairs awaiting deletion.
 	// As soon as the 'usageCounter' of a peer in this map reaches 0, they are removed.
 	awaitingRemovalViewList map[Peer]*PeerInfoCentral
-	// incomingViewList is the current map of (Peer, PeerInfoCentral) pairs where the remote
+	// activelyProbedPeers is a set of Peers which are currently being probed and cannot
+	// be opened connection with a PeerAddMSG. If peer add command for such a Peer arrives,
+	// then the value of that peer is set to 'true', otherwise it is by default 'false'.
+	// When the probe reply arrives from the probing goroutine, value of the peer is checked.
+	// If the value is true, then peer is added to the viewList. Then the peer is removed
+	// from this variable.
+	activelyProbedPeers map[Peer]bool
+	// incomingViewList is the current map of (Peer, *PeerInfoCentral) pairs where the remote
 	// peer is the one who started the communication. Note that NO peer may use their
 	// P2P listen address (IP, port) pair for starting a communication with another peer.
 	// So, it is safe to start a communication to a peer that is inside 'incomingViewList'.
@@ -99,18 +114,21 @@ func NewCentralController(
 	if err != nil {
 		return nil, err
 	}
-	_, err = net.ResolveTCPAddr("tcp", apiAddr)
+	// Get the outbound ip address for TCP/UDP connections.
+	ipAddr, err := GetOutboundIP()
 	if err != nil {
 		return nil, err
 	}
-	addr, err := net.ResolveTCPAddr("tcp", p2pAddr)
+	addr, err := net.ResolveTCPAddr("tcp", apiAddr)
 	if err != nil {
 		return nil, err
 	}
-	// Check if the ip address exists in 'p2pAddr'
-	if ipAddr, err := GetOutboundIP(); addr.IP == nil && err == nil {
-		p2pAddr = fmt.Sprintf("%s:%d", ipAddr, addr.Port)
+	apiAddr = fmt.Sprintf("%s:%d", ipAddr, addr.Port)
+	addr, err = net.ResolveTCPAddr("tcp", p2pAddr)
+	if err != nil {
+		return nil, err
 	}
+	p2pAddr = fmt.Sprintf("%s:%d", ipAddr, addr.Port)
 	// Check the validity of the integer arguments
 	if cacheSize == 0 || degree == 0 || degree > 10 {
 		return nil, fmt.Errorf("invalid CentralController arguments, 'cache_size': %d, 'degree': %d", cacheSize, degree)
@@ -120,10 +138,12 @@ func NewCentralController(
 	// Since this parameter is critical for the correct operation of the network,
 	// it is embedded into the source code instead of the config file. This way,
 	// only "power users", who know what they are doing, can modify it!
-	maxPeers := 1e9
+	maxPeers := 1e8
 	alpha, beta := 0.45, 0.45
 	inQueueSize := 1024
 	outQueueSize := 64
+	membershipRoundDuration := 30 * time.Second
+	gossipRoundDuration := 500 * time.Millisecond
 
 	if maxTTL == 0 {
 		maxTTL = uint8(math.Ceil(math.Log2(maxPeers) / math.Log2(math.Max(2, float64(degree)))))
@@ -137,6 +157,7 @@ func NewCentralController(
 		viewList:                indexedmap.New(),
 		viewListCap:             viewListCap,
 		awaitingRemovalViewList: map[Peer]*PeerInfoCentral{},
+		activelyProbedPeers:     map[Peer]bool{},
 		incomingViewList:        map[Peer]*PeerInfoCentral{},
 		incomingViewListMAX:     2 * viewListCap,
 		apiClients:              map[APIClient]*APIClientInfoCentral{},
@@ -144,8 +165,22 @@ func NewCentralController(
 		MsgInQueue:              make(chan InternalMessage, inQueueSize),
 	}
 
+	apiListener, err := NewAPIListener(apiAddr, centralController.MsgInQueue)
+	if err != nil {
+		return nil, err
+	}
+	centralController.apiListener = apiListener
+
+	// TODO: completely describe the secure communication configs below!
+	p2pConfig := securecomm.Config{}
+	p2pListener, err := NewP2PListener(p2pAddr, centralController.MsgInQueue, &p2pConfig)
+	if err != nil {
+		return nil, err
+	}
+	centralController.p2pListener = p2pListener
+
 	membershipController, err := NewMembershipController(
-		bootstrapper, p2pAddr, alpha, beta, maxPeers, centralController.viewListCap,
+		bootstrapper, p2pAddr, alpha, beta, membershipRoundDuration, maxPeers, centralController.viewListCap,
 		make(chan InternalMessage, outQueueSize), centralController.MsgInQueue,
 	)
 	if err != nil {
@@ -154,7 +189,7 @@ func NewCentralController(
 	centralController.membershipController = membershipController
 
 	gossiper, err := NewGossiper(
-		cacheSize, degree, maxTTL,
+		cacheSize, degree, maxTTL, gossipRoundDuration, maxPeers,
 		make(chan InternalMessage, outQueueSize), centralController.MsgInQueue,
 	)
 	if err != nil {
@@ -167,7 +202,13 @@ func NewCentralController(
 
 // Run is the core logic of this Gossip module.
 func (centralController *CentralController) Run() {
-	// TODO: fill here
+	// TODO: change the code below to the real logic !!!
+
+	// Before closing the Central controller, make sure to have already
+	// closed all other submodules (goroutines)! Use CentralControllerState
+	// for the purposes of tracking which submodule is up or down.
+	centralController.apiListener.Close()
+	centralController.p2pListener.Close()
 }
 
 func (centralController *CentralController) String() string {
@@ -181,6 +222,7 @@ func (centralController *CentralController) String() string {
 		"\tviewList: %v,\n" +
 		"\tviewListCap: %d,\n" +
 		"\tawaitingRemovalViewList: %s,\n" +
+		"\tactivelyProbedPeers: %s,\n" +
 		"\tincomingViewList: %s,\n" +
 		"\tincomingViewListMAX: %d,\n" +
 		"\tapiClients: %s,\n" +
@@ -199,6 +241,7 @@ func (centralController *CentralController) String() string {
 		centralController.viewList,
 		centralController.viewListCap,
 		centralController.awaitingRemovalViewList,
+		centralController.activelyProbedPeers,
 		centralController.incomingViewList,
 		centralController.incomingViewListMAX,
 		centralController.apiClients,
