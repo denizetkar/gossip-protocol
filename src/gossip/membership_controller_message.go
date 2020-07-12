@@ -90,25 +90,41 @@ type MembershipCloseMSGPayload void
 // with type MembershipClosedMSG.
 type MembershipClosedMSGPayload void
 
+// HashVal is the common cryptographic hashing function for all
+// membership push requests.
+func (pr *MembershipPushRequestMSGPayload) HashVal(hardness uint64) (*big.Int, error) {
+	pass := []byte(fmt.Sprintf("%v", pr))
+	hash, err := scrypt.Key(pass, nil, 1<<hardness, 8, 1, 32)
+	if err != nil {
+		return nil, err
+	}
+	hashVal := new(big.Int).SetBytes(hash)
+	return hashVal, nil
+}
+
+// PoWThreshold returns the 'k' value for a given bit size and repetition.
+func PoWThreshold(repetition, bits uint64) *big.Int {
+	// k = (2^bits - 1)/repetition
+	k := new(big.Int).Exp(new(big.Int).SetInt64(2), new(big.Int).SetUint64(bits), nil)
+	k = new(big.Int).Sub(k, new(big.Int).SetInt64(1))
+	k = k.Div(k, new(big.Int).SetUint64(repetition))
+	return k
+}
+
 // NewMembershipPushRequestMSGPayload is the constructor function for struct type MembershipPushRequestMSGPayload.
 func NewMembershipPushRequestMSGPayload(
 	from, to Peer, hardness, repetition uint64,
 ) (*MembershipPushRequestMSGPayload, error) {
-	// k = (2^256 - 1)/repetition
-	k := new(big.Int).Exp(new(big.Int).SetInt64(2), new(big.Int).SetInt64(256), nil)
-	k = new(big.Int).Sub(k, new(big.Int).SetInt64(1))
-	k = k.Div(k, new(big.Int).SetUint64(repetition))
+	k := PoWThreshold(repetition, 256)
 
-	pr := MembershipPushRequestMSGPayload{From: from, To: to, When: time.Now().UTC(), Nonce: mrand.Uint64()}
+	pr := &MembershipPushRequestMSGPayload{From: from, To: to, When: time.Now().UTC(), Nonce: mrand.Uint64()}
 	for i := uint64(0); i < 2*repetition; i++ {
-		pass := []byte(fmt.Sprintf("%v", pr))
-		hash, err := scrypt.Key(pass, nil, 1<<hardness, 8, 1, 32)
+		hashVal, err := pr.HashVal(hardness)
 		if err != nil {
 			return nil, err
 		}
-		hashVal := new(big.Int).SetBytes(hash)
 		if hashVal.Cmp(k) <= 0 {
-			return &pr, nil
+			return pr, nil
 		}
 		pr.Nonce++
 	}

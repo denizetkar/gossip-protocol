@@ -64,12 +64,16 @@ const (
 	// the Gossiper to spread the information provided in the payload.
 	GossipAnnounceMSG
 	// GossipNotifyMSG is a command from the Central controller to
-	// the Gossiper to notify the corresponding API client upon
-	// receiving a gossip of given type.
+	// the Gossiper to register the corresponding API client for notifications
+	// about the given gossip data types.
 	GossipNotifyMSG
 	// GossipUnnofityMSG is a command from the Central controller to
 	// the Gossiper to entirely remove the given API client.
 	GossipUnnofityMSG
+	// GossipNotificationMSG is a command from the Gossiper to the
+	// the Central controller to notify the corresponding API client upon
+	// receiving a gossip of given data type.
+	GossipNotificationMSG
 	// GossipPushMSG is a command from the Gossiper to the Central
 	// controller to send the GossipPushMSGPayload to the peer specified.
 	GossipPushMSG
@@ -120,3 +124,13 @@ type InternalMessage struct {
 }
 
 // TODO: Create payload types for all internal message types as necessary.
+
+// CloseError is a special type of error used by a message handler function,
+// in order to signal to a goroutine that it should close gracefully.
+type CloseError struct {
+	s string
+}
+
+func (err *CloseError) Error() string {
+	return err.s
+}
