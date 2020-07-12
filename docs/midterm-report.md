@@ -26,7 +26,7 @@ The last two logical structures are the Listeners and the Endpoints.
 These can be further divided into API Listener and P2P Listener, and API Endpoints and P2P Endpoints.
 The **API Listener** is used to create API Endpoints for the modules that want to communicate with our Gossip module and the **P2P Listener** is used to create P2P Endpoints for the remote peers that want to communicate with the local peer.
 Each **Endpoint** is specific to a communication with an endpoint of another peer.
-Making read and write operations on endpoints is the job of the Central Controller.
+Making read and write operations on endpoints is the job of the endpoints and the Central controller that sends and receives through them.
 
 Every goroutine will communicate over an Internal Messaging System.
 The messages are transmitted over golang channels and consist basically of a message type and a data payload that should be transmitted.
