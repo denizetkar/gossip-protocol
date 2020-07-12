@@ -41,6 +41,9 @@ type Gossiper struct {
 	// apiClientsToNotify is a map of API clients to be notified upon receiving
 	// a gossip item with a 'data type' that interests the client.
 	apiClientsToNotify map[APIClient]*APIClientInfoGossiper
+	// validationMap is a map from message ID's of client notifications to gossip item.
+	validationMap   map[uint16]GossipItem
+	nextAvailableID uint16
 	// pullPeers are peers to whom the Gossiper sent a gossip pull request and
 	// is waiting for a pull reply. Any gossip pull reply from a peer outside of
 	// this set will be ignored!
@@ -67,6 +70,8 @@ func NewGossiper(cacheSize uint16, degree, maxTTL uint8, roundPeriod time.Durati
 		gossipList:         map[GossipItem]*GossipItemInfoGossiper{},
 		oldGossipList:      map[GossipItem]*GossipItemInfoGossiper{},
 		apiClientsToNotify: map[APIClient]*APIClientInfoGossiper{},
+		validationMap:      map[uint16]GossipItem{},
+		nextAvailableID:    0,
 		pullPeers:          set.New(),
 		MsgInQueue:         inQ,
 		MsgOutQueue:        outQ,
@@ -74,7 +79,8 @@ func NewGossiper(cacheSize uint16, degree, maxTTL uint8, roundPeriod time.Durati
 }
 
 // recover method tries to catch a panic in controllerRoutine if it exists, then
-// informs the Central controller about the crash.
+// informs the Central controller about the crash. If there is no panic, then
+// informs the Central controller about the graceful closure.
 func (gossiper *Gossiper) recover() {
 	var err error
 	if r := recover(); r != nil {
@@ -96,14 +102,14 @@ func (gossiper *Gossiper) recover() {
 	}
 }
 
-func (gossiper *Gossiper) gossiperRoutine() {
+func (gossiper *Gossiper) controllerRoutine() {
 	defer gossiper.recover()
 	// TODO: fill here
 }
 
-// RunGossiperGoroutine runs the Gossiper goroutine.
-func (gossiper *Gossiper) RunGossiperGoroutine() {
-	go gossiper.gossiperRoutine()
+// RunControllerGoroutine runs the Gossiper goroutine.
+func (gossiper *Gossiper) RunControllerGoroutine() {
+	go gossiper.controllerRoutine()
 }
 
 func (gossiper *Gossiper) String() string {
@@ -115,6 +121,8 @@ func (gossiper *Gossiper) String() string {
 		"\tgossipList: %s,\n" +
 		"\toldGossipList: %s,\n" +
 		"\tapiClientsToNotify: %s,\n" +
+		"\tvalidationMap: %s,\n" +
+		"\tnextAvailableID: %d,\n" +
 		"\tpullPeers: %s,\n" +
 		"}"
 	return fmt.Sprintf(reprFormat,
@@ -125,6 +133,8 @@ func (gossiper *Gossiper) String() string {
 		gossiper.gossipList,
 		gossiper.oldGossipList,
 		gossiper.apiClientsToNotify,
+		gossiper.validationMap,
+		gossiper.nextAvailableID,
 		gossiper.pullPeers,
 	)
 }
