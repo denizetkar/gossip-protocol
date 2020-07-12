@@ -76,13 +76,12 @@ The communication will furthermore be encrypted using an AES256 key, which is sh
 ## Future work
 In the last segment of the project time we need to finalize the P2P and API Listener/Endpoints as well as to finalize the Central Controller.
 We also need to implement the Secure Communication Channel.
-Finally an Implementation of the Gossiper has also to be done.
 
 ## Workload Distribution
 In the following, the workload distribution after the initial report is shown.
 Deniz Etkar:
 - Template creation for all structures
-- Implementation of the Membership controller
+- Implementation of the Membership controller and the Gossiper
 - Initialization of the Internal Messaging system
 
 Daniel Fomin:
@@ -91,5 +90,5 @@ Daniel Fomin:
 
 ## Effort spent
 Our effort that we spent on the projects, counted in hours in total since the initial report is described in the following:
-- Deniz Etkar: 40h
-- Daniel Fomin: 30h
+- Deniz Etkar: 45h
+- Daniel Fomin: 35h
