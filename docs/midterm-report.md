@@ -26,7 +26,7 @@ The last two logical structures are the Listeners and the Endpoints.
 These can be further divided into API Listener and P2P Listener, and API Endpoints and P2P Endpoints.
 The **API Listener** is used to create API Endpoints for the modules that want to communicate with our Gossip module and the **P2P Listener** is used to create P2P Endpoints for the remote peers that want to communicate with the local peer.
 Each **Endpoint** is specific to a communication with an endpoint of another peer.
-Making read and write operations on endpoints is the job of the endpoints and the Central controller that sends and receives through them.
+The endpoints act as an interface for the Central Controller, implementing every read and write operation, so that the Central Controller can use the internal messaging system to initiate a data transfer.
 
 Every goroutine will communicate over an Internal Messaging System.
 The messages are transmitted over golang channels and consist basically of a message type and a data payload that should be transmitted.
@@ -47,14 +47,15 @@ The type and the data in the payload corresponds to the type and data we receive
 ### Message types
 The messages itself can originate either from the gossiper or from the membership controller.
 The messages that both goroutines initiate are listed in the following:
-The **Gossiper** sends at each gossip round push messages as well as pull requests of rumours to existing peer connections, following the "Median-Counter Algorithm". The Gossipers on the other peers then receive the messages and reply with Pull Replies
-The **Membership controller** acts in a similar way by sending membership related push/pull messages at every round as well as receiving Disconnect messages from other peers
+The **Gossiper** sends at each gossip round push messages as well as pull requests of rumours to existing peer connections, following the "Median-Counter Algorithm". 
+The Gossipers on the other peers then reply with Pull Replies when they receive a pull request.
+The **Membership controller** acts in a similar way by sending membership related push/pull messages at every round as well as receiving Disconnect messages from the Central controller for when a remote peer abruptly disconnects.
 There is a significant difference between the gossiper and the membership controller rounds.
 That is that the rounds in the membership controller are much longer, i.e. 30s vs 500ms.
 
 ### Exception handling
 To mitigate problems because of exceptions, we use the following techniques:
-If an Endpoint does not reply within a specific timeout, it is deemed to be down and the connection is terminated exactly as if the peer would send a Disconnect message.
+If an Endpoint does not reply within a specific timeout, it is deemed to be down and the connection is terminated.
 Thereby peers can be detected that did not correctly disconnect and be removed from the peer list.
 To test for corrupted data, a message is forwarded to the destination module which checks the validity of the data, thereby forwarding the problem to the module that should receive the message.
 To prevent DoS attacks we use 'io.LimitedReader' which allows us to read just a limited amount of bytes from the communication buffer.
