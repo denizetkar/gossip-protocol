@@ -16,15 +16,16 @@ func New() *IndexedSet {
 }
 
 // Add is the function for adding elements into the indexed set.
-func (indexedSet *IndexedSet) Add(elem AnyType) {
+func (indexedSet *IndexedSet) Add(elem AnyType) *IndexedSet {
 	if _, isMember := indexedSet.s[elem]; !isMember {
 		indexedSet.s[elem] = len(indexedSet.elemList)
 		indexedSet.elemList = append(indexedSet.elemList, elem)
 	}
+	return indexedSet
 }
 
 // Remove is the function for removing elements from the indexed set.
-func (indexedSet *IndexedSet) Remove(elem AnyType) {
+func (indexedSet *IndexedSet) Remove(elem AnyType) *IndexedSet {
 	if i, isMember := indexedSet.s[elem]; isMember {
 		lastIndex := len(indexedSet.elemList) - 1
 		lastElem := indexedSet.elemList[lastIndex]
@@ -33,6 +34,7 @@ func (indexedSet *IndexedSet) Remove(elem AnyType) {
 		indexedSet.s[lastElem] = i
 		delete(indexedSet.s, elem)
 	}
+	return indexedSet
 }
 
 // IsMember is the function for checking if the element is in the indexed set.

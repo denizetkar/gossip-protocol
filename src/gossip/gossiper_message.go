@@ -51,6 +51,16 @@ type GossipNotifyMSGPayload struct {
 // with type GossipUnnofityMSG.
 type GossipUnnofityMSGPayload APIClient
 
+// GossipNotificationMSGPayload is the payload type of an InternalMessage
+// with type GossipNotificationMSG.
+type GossipNotificationMSGPayload struct {
+	// Item is the gossip item to notify the client about.
+	Item *GossipItem
+	// ID is the message id for later identifying the corresponding
+	// GOSSIP VALIDATION api call.
+	ID uint16
+}
+
 // GossipPushMSGPayload is the payload type of an InternalMessage
 // with type GossipPushMSG.
 type GossipPushMSGPayload struct {

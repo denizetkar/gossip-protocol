@@ -63,13 +63,20 @@ type CentralController struct {
 	apiListener *APIListener
 	// apiListener is the p2p listener goroutine
 	p2pListener *P2PListener
-	// viewList is the current map of (Peer, PeerInfoCentral) pairs for gossiping. It is of size O(n^0.25).
+	// viewList is the current map of (Peer, *PeerInfoCentral) pairs for gossiping. It is of size O(n^0.25).
 	viewList    *indexedmap.IndexedMap
 	viewListCap uint16
-	// awaitingRemovalViewList is the current map of (Peer, PeerInfoCentral) pairs awaiting deletion.
+	// awaitingRemovalViewList is the current map of (Peer, *PeerInfoCentral) pairs awaiting deletion.
 	// As soon as the 'usageCounter' of a peer in this map reaches 0, they are removed.
 	awaitingRemovalViewList map[Peer]*PeerInfoCentral
-	// incomingViewList is the current map of (Peer, PeerInfoCentral) pairs where the remote
+	// activelyProbedPeers is a set of Peers which are currently being probed and cannot
+	// be opened connection with a PeerAddMSG. If peer add command for such a Peer arrives,
+	// then the value of that peer is set to 'true', otherwise it is by default 'false'.
+	// When the probe reply arrives from the probing goroutine, value of the peer is checked.
+	// If the value is true, then peer is added to the viewList. Then the peer is removed
+	// from this variable.
+	activelyProbedPeers map[Peer]bool
+	// incomingViewList is the current map of (Peer, *PeerInfoCentral) pairs where the remote
 	// peer is the one who started the communication. Note that NO peer may use their
 	// P2P listen address (IP, port) pair for starting a communication with another peer.
 	// So, it is safe to start a communication to a peer that is inside 'incomingViewList'.
@@ -150,6 +157,7 @@ func NewCentralController(
 		viewList:                indexedmap.New(),
 		viewListCap:             viewListCap,
 		awaitingRemovalViewList: map[Peer]*PeerInfoCentral{},
+		activelyProbedPeers:     map[Peer]bool{},
 		incomingViewList:        map[Peer]*PeerInfoCentral{},
 		incomingViewListMAX:     2 * viewListCap,
 		apiClients:              map[APIClient]*APIClientInfoCentral{},
@@ -214,6 +222,7 @@ func (centralController *CentralController) String() string {
 		"\tviewList: %v,\n" +
 		"\tviewListCap: %d,\n" +
 		"\tawaitingRemovalViewList: %s,\n" +
+		"\tactivelyProbedPeers: %s,\n" +
 		"\tincomingViewList: %s,\n" +
 		"\tincomingViewListMAX: %d,\n" +
 		"\tapiClients: %s,\n" +
@@ -232,6 +241,7 @@ func (centralController *CentralController) String() string {
 		centralController.viewList,
 		centralController.viewListCap,
 		centralController.awaitingRemovalViewList,
+		centralController.activelyProbedPeers,
 		centralController.incomingViewList,
 		centralController.incomingViewListMAX,
 		centralController.apiClients,
