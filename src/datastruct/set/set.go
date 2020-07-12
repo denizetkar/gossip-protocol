@@ -15,13 +15,15 @@ func New() Set {
 }
 
 // Add is the function for adding elements into the set.
-func (set Set) Add(elem AnyType) {
+func (set Set) Add(elem AnyType) Set {
 	set[elem] = void{}
+	return set
 }
 
 // Remove is the function for removing elements from the set.
-func (set Set) Remove(elem AnyType) {
+func (set Set) Remove(elem AnyType) Set {
 	delete(set, elem)
+	return set
 }
 
 // IsMember is the function for checking if the element is in the set.

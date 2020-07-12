@@ -10,7 +10,7 @@ type AnyValueType interface{}
 
 // ValueAndIndex is exactly what is sounds like.
 type ValueAndIndex struct {
-	value AnyValueType
+	Value AnyValueType
 	index int
 }
 
@@ -27,18 +27,19 @@ func New() *IndexedMap {
 }
 
 // Put is the function for putting a key-value pair into the map.
-func (indexedMap *IndexedMap) Put(key AnyKeyType, value AnyValueType) {
+func (indexedMap *IndexedMap) Put(key AnyKeyType, value AnyValueType) *IndexedMap {
 	valueAndIndex, isMember := indexedMap.m[key]
 	if !isMember {
-		indexedMap.m[key] = ValueAndIndex{value: value, index: len(indexedMap.keyList)}
+		indexedMap.m[key] = ValueAndIndex{Value: value, index: len(indexedMap.keyList)}
 		indexedMap.keyList = append(indexedMap.keyList, key)
 	} else {
-		indexedMap.m[key] = ValueAndIndex{value: value, index: valueAndIndex.index}
+		indexedMap.m[key] = ValueAndIndex{Value: value, index: valueAndIndex.index}
 	}
+	return indexedMap
 }
 
 // Remove is the function for removing keys from the map.
-func (indexedMap *IndexedMap) Remove(key AnyKeyType) {
+func (indexedMap *IndexedMap) Remove(key AnyKeyType) *IndexedMap {
 	if valueAndIndex, isMember := indexedMap.m[key]; isMember {
 		lastIndex := len(indexedMap.keyList) - 1
 		lastKey := indexedMap.keyList[lastIndex]
@@ -50,6 +51,7 @@ func (indexedMap *IndexedMap) Remove(key AnyKeyType) {
 		indexedMap.m[lastKey] = lastValueAndIndex
 		delete(indexedMap.m, key)
 	}
+	return indexedMap
 }
 
 // IsMember is the function for checking if the key is in the map.
@@ -84,9 +86,21 @@ func (indexedMap *IndexedMap) KeyIndex(key AnyKeyType) int {
 
 // GetValue is the function to get the value of the key.
 func (indexedMap *IndexedMap) GetValue(key AnyKeyType) AnyValueType {
-	valueAndIndex, ok := indexedMap.m[key]
-	if ok {
-		return valueAndIndex.value
+	valueAndIndex, isMember := indexedMap.m[key]
+	if isMember {
+		return valueAndIndex.Value
 	}
 	return nil
+}
+
+// Iterate is the method for iterating over the indexed map:
+//
+// for key, valueAndIndex := range map.Iterate() {
+//     value := valueAndIndex.Value
+//     ...
+// }
+//  OR
+// for key := range map.Iterate() {...}
+func (indexedMap *IndexedMap) Iterate() map[AnyKeyType]ValueAndIndex {
+	return indexedMap.m
 }
