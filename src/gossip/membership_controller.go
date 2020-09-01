@@ -271,8 +271,7 @@ func NewMembershipController(
 }
 
 // recover method tries to catch a panic in controllerRoutine if it exists, then
-// informs the Central controller about the crash. If there is no panic, then
-// informs the Central controller about the graceful closure.
+// informs the Central controller about the crash.
 func (membershipController *MembershipController) recover() {
 	var err error
 	if r := recover(); r != nil {
@@ -286,17 +285,17 @@ func (membershipController *MembershipController) recover() {
 			err = errors.New("Unknown panic in MembershipController")
 		}
 
+		// Clear the input queue.
+		for len(membershipController.MsgInQueue) > 0 {
+			<-membershipController.MsgInQueue
+		}
 		// send MembershipCrashedMSG to the Central controller!
 		membershipController.MsgOutQueue <- InternalMessage{Type: MembershipCrashedMSG, Payload: err}
-	} else {
-		// send MembershipClosedMSG to the Central controller!
-		membershipController.MsgOutQueue <- InternalMessage{Type: MembershipClosedMSG, Payload: void{}}
 	}
 }
 
 // replaceViewList is the method to use when replacing the 'viewList' with a new one.
-// It not only replaces but also informs the Central controller. So, DO NOT MAKE
-// CHANGES TO THE 'viewList' ELSEWHERE!
+// It not only replaces but also informs the Central controller.
 //
 // The 'newViewList' argument is possibly modified.
 func (membershipController *MembershipController) replaceViewList(newViewList *indexedset.IndexedSet) {
@@ -330,6 +329,34 @@ func (membershipController *MembershipController) replaceViewList(newViewList *i
 	}
 }
 
+// removePeer is the method to use when a remote peer goes down
+// and everything related to that peer needs to be removed.
+func (membershipController *MembershipController) removePeer(peer Peer) {
+	if membershipController.viewList.IsMember(peer) {
+		// Remove the peer from viewList.
+		membershipController.viewList.Remove(peer)
+		// Command the Central controller to remove the peer, since it cannot
+		// modify its 'viewList' without our explicit instructions. This has
+		// to be the case for the sake of eventual consistency between viewList's
+		// of both controllers.
+		membershipController.MsgOutQueue <- InternalMessage{Type: PeerRemoveMSG, Payload: peer}
+	}
+	// Check if the peer exists in sampleList.
+	if membershipController.sampleList.IsMember(peer) {
+		// Remove the peer from sampleList.
+		value := membershipController.sampleList.GetValue(peer)
+		peerSamplerSet := value.(set.Set)
+		membershipController.sampleListRemainingCap += uint32(peerSamplerSet.Len())
+		membershipController.sampleList.Remove(peer)
+	}
+	// Remove the peer from pushRequests.
+	membershipController.pushRequests.Remove(peer)
+	// Remove the peer from the pullReplies.
+	membershipController.pullReplies.Remove(peer)
+	// Remove the peer from the pullPeers.
+	membershipController.pullPeers.Remove(peer)
+}
+
 // pushRound is the method for performing limited push requests
 // during a membership round, as desribed in the BRAHMS paper.
 func (membershipController *MembershipController) pushRound() {
@@ -345,7 +372,6 @@ func (membershipController *MembershipController) pushRound() {
 				membershipController.powConfig.repetition,
 			)
 			if err != nil {
-				// TODO: log every unexpected incident like this one!
 				continue
 			}
 
@@ -377,9 +403,9 @@ func (membershipController *MembershipController) pullRound() {
 // in the BRAHMS paper.
 func (membershipController *MembershipController) updateRound() {
 	// Update the viewList only if there are no more than alphaSize push requests AND
-	// both pushed and pulled peers are non-empty.
+	// either pushed or pulled peers are non-empty.
 	if membershipController.pushRequests.Len() <= int(membershipController.alphaSize) &&
-		membershipController.pushRequests.Len() > 0 && membershipController.pullReplies.Len() > 0 {
+		(membershipController.pushRequests.Len() > 0 || membershipController.pullReplies.Len() > 0) {
 		newViewList := indexedset.New()
 		// Add up to alphaSize pushed peers into the new view list.
 		for elem := range membershipController.pushRequests.Iterate() {
@@ -505,8 +531,9 @@ func (membershipController *MembershipController) bootstrap() {
 	newViewList := indexedset.New().Add(Peer{Addr: membershipController.bootstrapper})
 	membershipController.replaceViewList(newViewList)
 	membershipController.pushProbability = 0.0
-	// force execute a round of membership exchange
-	membershipController.membershipRound()
+	// execute a round of push and pull with the bootstrapper peer
+	membershipController.pushRound()
+	membershipController.pullRound()
 }
 
 // peerDisconnectedHandler is the method called by controllerRoutine for when
@@ -514,25 +541,7 @@ func (membershipController *MembershipController) bootstrap() {
 func (membershipController *MembershipController) peerDisconnectedHandler(payload AnyMessage) error {
 	peer, ok := payload.(Peer)
 	if ok {
-		// Remove the peer from viewList.
-		membershipController.viewList.Remove(peer)
-		// Remove the peer from sampleList.
-		value := membershipController.sampleList.GetValue(peer)
-		peerSamplerSet := value.(set.Set)
-		membershipController.sampleListRemainingCap += uint32(peerSamplerSet.Len())
-		membershipController.sampleList.Remove(peer)
-		// Remove the peer from pushRequests.
-		membershipController.pushRequests.Remove(peer)
-		// Remove the peer from the pullReplies.
-		membershipController.pullReplies.Remove(peer)
-		// Remove the peer from the pullPeers.
-		membershipController.pullPeers.Remove(peer)
-
-		// Command the Central controller to remove the peer, since it cannot
-		// modify its 'viewList' without our explicit instructions. This has
-		// to be the case for the sake of eventual consistency between viewList's
-		// of both controllers.
-		membershipController.MsgOutQueue <- InternalMessage{Type: PeerRemoveMSG, Payload: peer}
+		membershipController.removePeer(peer)
 	}
 
 	return nil
@@ -545,11 +554,7 @@ func (membershipController *MembershipController) probePeerReplyHandler(payload 
 	if ok {
 		if reply.ProbeResult == false {
 			peer := reply.Probed
-			// Remove the peer from sampleList.
-			value := membershipController.sampleList.GetValue(peer)
-			peerSamplerSet := value.(set.Set)
-			membershipController.sampleListRemainingCap += uint32(peerSamplerSet.Len())
-			membershipController.sampleList.Remove(peer)
+			membershipController.removePeer(peer)
 		}
 	}
 
@@ -564,9 +569,12 @@ func (membershipController *MembershipController) incomingPushRequestHandler(pay
 		if time.Now().UTC().Sub(pr.When) <= membershipController.powConfig.validityDuration &&
 			pr.To.Addr == membershipController.p2pAddr {
 			k := PoWThreshold(membershipController.powConfig.repetition, 256)
-			hashVal, err := (&pr).HashVal(membershipController.powConfig.hardness)
+			hashVal, err := pr.HashVal(membershipController.powConfig.hardness)
 			if err == nil && hashVal.Cmp(k) <= 0 {
-				membershipController.pushRequests.Add(pr.From)
+				// If the pushed peer is valid, then add to pushRequests.
+				if pr.From.ValidateAddr() == nil {
+					membershipController.pushRequests.Add(pr.From)
+				}
 			}
 		}
 	}
@@ -601,7 +609,10 @@ func (membershipController *MembershipController) incomingPullReplyHandler(paylo
 			membershipController.pullPeers.Remove(reply.From)
 			// Add all peers into the pullReplies.
 			for _, peer := range reply.ViewList {
-				membershipController.pullReplies.Add(peer)
+				// If the pushed peer is valid, then add to pullReplies.
+				if peer.ValidateAddr() == nil {
+					membershipController.pullReplies.Add(peer)
+				}
 			}
 		}
 	}
@@ -614,6 +625,12 @@ func (membershipController *MembershipController) incomingPullReplyHandler(paylo
 func (membershipController *MembershipController) closeHandler(payload AnyMessage) error {
 	_, ok := payload.(void)
 	if ok {
+		// Clear the input queue.
+		for len(membershipController.MsgInQueue) > 0 {
+			<-membershipController.MsgInQueue
+		}
+		// send MembershipClosedMSG to the Central controller!
+		membershipController.MsgOutQueue <- InternalMessage{Type: MembershipClosedMSG, Payload: void{}}
 		// Signal for graceful closure.
 		return &CloseError{}
 	}

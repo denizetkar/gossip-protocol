@@ -5,6 +5,17 @@ package main
 // described in the specifications.pdf .
 type GossipItemDataType uint16
 
+const (
+	// GossipAnnounce is the enumeration of 'GOSSIP ANNOUNCE' api message
+	GossipAnnounce GossipItemDataType = iota + 500
+	// GossipNotify is the enumeration of 'GOSSIP NOTIFY' api message
+	GossipNotify
+	// GossipNotification is the enumeration of 'GOSSIP NOTIFICATION' api message
+	GossipNotification
+	// GossipValidation is the enumeration of 'GOSSIP VALIDATION' api message
+	GossipValidation
+)
+
 // GossipItem holds the Gossip item coming from
 // a "GOSSIP ANNOUCE" api call.
 type GossipItem struct {
@@ -37,7 +48,7 @@ type GossipItemState struct {
 	state      MedianCounterState
 	counter    uint8
 	ttl        uint8
-	medianRule int8
+	medianRule int
 }
 
 // GossipItemInfoGossiper contains the current state of the corresponding
@@ -46,6 +57,47 @@ type GossipItemState struct {
 // This struct is meant to be used as a value in a
 // map[GossipItem]*GossipItemInfoGossiper by the Gossiper.
 type GossipItemInfoGossiper struct {
-	state    GossipItemState
+	s        GossipItemState
 	peerList []Peer
+}
+
+// Cmp compares 2 GossipItemState's by essentially checking if the 'state'
+// of 'ls' has higher order than 'rs', if it is then returns 1. If it has,
+// a lower order then returns -1. Otherwise, compares the 'counter' of both
+// and similarly, if 'ls' has a higher counter then returns 1. If it is
+// smaller then returns -1. Otherwise, returns 0.
+//
+// Note that MedianCounterState's are defined in increasing order.
+func (ls *GossipItemState) Cmp(rs *GossipItemState) int {
+	lsVal := (uint16(ls.state) << 8) | uint16(ls.counter)
+	rsVal := (uint16(rs.state) << 8) | uint16(rs.counter)
+	if lsVal > rsVal {
+		return 1
+	} else if lsVal < rsVal {
+		return -1
+	}
+	return 0
+}
+
+// UpdateItemInfo is the method for updating state of a gossip item
+// with the state of an incoming gossip item, as described in the
+// "median-counter algorithm".
+func (info *GossipItemInfoGossiper) UpdateItemInfo(newInfo *GossipItemInfoGossiper) {
+	switch info.s.state {
+	case MedianCounterStateB:
+		switch newInfo.s.state {
+		case MedianCounterStateB:
+			if newInfo.s.counter >= info.s.counter {
+				info.s.medianRule++
+			} else {
+				info.s.medianRule--
+			}
+		case MedianCounterStateC:
+			info.s.state = MedianCounterStateC
+			info.s.counter = 0
+			info.s.medianRule = 0
+		}
+	case MedianCounterStateC:
+		// We don't need to update in this case.
+	}
 }

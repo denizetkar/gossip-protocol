@@ -3,6 +3,7 @@ package main
 import (
 	"datastruct/set"
 	"net"
+	"sync"
 )
 
 // APIClient is just a placeholder for the TCP\IP address
@@ -21,6 +22,9 @@ type APIClientInfoGossiperNotifyDataTypesType GossipItemDataType
 // map[APIClient]*APIClientInfoGossiper by the Gossiper controller.
 type APIClientInfoGossiper struct {
 	notifyDataTypes set.Set
+	// validationMap is a map from message ID's of client notifications to gossip item.
+	validationMap   map[uint16]*GossipItem
+	nextAvailableID uint16
 }
 
 // APIClientReaderState is a const type for describing the execution state of an
@@ -56,8 +60,9 @@ type APIClientState struct {
 // state of the API client. This struct is meant to be used as a value in a
 // map[APIClient]*APIClientInfoCentral by the Central controller.
 type APIClientInfoCentral struct {
-	endpoint *APIEndpoint
-	state    APIClientState
+	endpoint   *APIEndpoint
+	state      APIClientState
+	hasCrashed bool
 }
 
 // APIEndpoint holds a secure connection for communicating with the
@@ -74,6 +79,8 @@ type APIEndpoint struct {
 	MsgOutQueue chan InternalMessage
 	// sigCh is used for signaling the reader goroutine to close gracefully.
 	sigCh chan struct{}
+	// A synchronozation variable to execute the Close method only once.
+	closeOnce sync.Once
 }
 
 // APIListener is the goroutine that will listen for incoming API connection
@@ -128,8 +135,22 @@ func (apiListener *APIListener) Close() error {
 	return nil
 }
 
+// NewAPIEndpoint is the constructor function of APIEndpoint struct.
+func NewAPIEndpoint(apiAddr string, inQ, outQ chan InternalMessage) (*APIEndpoint, error) {
+	conn, err := net.DialTimeout("tcp", apiAddr, connectionTimeout)
+	tcpConn := conn.(*net.TCPConn)
+
+	return &APIEndpoint{
+		apiClient: APIClient{addr: apiAddr}, conn: tcpConn,
+		MsgInQueue: inQ, MsgOutQueue: outQ,
+		sigCh: make(chan struct{}), closeOnce: sync.Once{},
+	}, err
+}
+
 func (apiEndpoint *APIEndpoint) readerRoutine() {
 	// TODO: fill here
+
+	// TODO: notify the Central controller before closing/returning!
 }
 
 // RunReaderGoroutine runs the goroutine that will read from
@@ -141,6 +162,8 @@ func (apiEndpoint *APIEndpoint) RunReaderGoroutine() {
 
 func (apiEndpoint *APIEndpoint) writerRoutine() {
 	// TODO: fill here
+
+	// TODO: notify the Central controller before closing/returning!
 }
 
 // RunWriterGoroutine runs the goroutine that will receive an
@@ -152,9 +175,17 @@ func (apiEndpoint *APIEndpoint) RunWriterGoroutine() {
 
 // Close method initiates a graceful closing operation without blocking.
 func (apiEndpoint *APIEndpoint) Close() error {
-	// TODO: send an InternalMessage to the writer for closing it!
+	apiEndpoint.closeOnce.Do(func() {
+		// TODO: send an InternalMessage to the writer for closing it!
 
-	// Closing the 'sigCh' channel signals the reader to close itself.
-	close(apiEndpoint.sigCh)
+		// Closing the 'sigCh' channel signals the reader to close itself.
+		close(apiEndpoint.sigCh)
+	})
 	return nil
+}
+
+// HaveBothStopped return true iff both the reader and
+// the writer have a STOPPED state.
+func (s *APIClientState) HaveBothStopped() bool {
+	return (s.readerState == APIClientReaderSTOPPED && s.writerState == APIClientWriterSTOPPED)
 }
