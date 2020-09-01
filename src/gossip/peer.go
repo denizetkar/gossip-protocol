@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/securecomm"
 	"net"
+	"sync"
 )
 
 // Peer is just a placeholder for the TCP\IP address
@@ -51,11 +52,12 @@ type PeerState struct {
 // connection is used by the Gossiper goroutine who will use these
 // connections to actually do the gossiping. This struct is meant to be
 // used as a value in a map[Peer]*PeerInfoCentral by the Central controller.
-// Finally there is a state variable for storing the state of a peer.
+// Finally there are state variables for storing the state of a peer.
 type PeerInfoCentral struct {
 	endpoint     *P2PEndpoint
-	usageCounter uint32
+	usageCounter int
 	state        PeerState
+	hasCrashed   bool
 }
 
 // P2PEndpoint holds a secure connection for communicating with the
@@ -81,6 +83,8 @@ type P2PEndpoint struct {
 	// initiated by this node IF AND ONLY IF the remote node
 	// is in the 'viewList' OR is in the 'awaitingRemovalViewList'.
 	isOutgoing bool
+	// A synchronozation variable to execute the Close method only once.
+	closeOnce sync.Once
 }
 
 // P2PListener is the goroutine that will listen for incoming P2P connection
@@ -97,7 +101,13 @@ type P2PListener struct {
 }
 
 // NewP2PListener is the constructor function of P2PListener struct.
-func NewP2PListener(p2pAddr string, outQ chan InternalMessage, config *securecomm.Config) (*P2PListener, error) {
+func NewP2PListener(
+	p2pAddr string, outQ chan InternalMessage, config *securecomm.Config,
+) (*P2PListener, error) {
+	_, err := net.ResolveTCPAddr("tcp", p2pAddr)
+	if err != nil {
+		return nil, err
+	}
 	ln, err := securecomm.Listen("tcp", p2pAddr, config)
 	if err != nil {
 		return nil, err
@@ -131,8 +141,24 @@ func (p2pListener *P2PListener) Close() error {
 	return nil
 }
 
+// NewP2PEndpoint is the constructor function of P2PEndpoint struct.
+func NewP2PEndpoint(
+	p2pAddr string, config *securecomm.Config, inQ, outQ chan InternalMessage, isOutgoing bool,
+) (*P2PEndpoint, error) {
+	conn, err := securecomm.DialWithDialer(&net.Dialer{Timeout: connectionTimeout}, "tcp", p2pAddr, config)
+
+	return &P2PEndpoint{
+		peer: Peer{Addr: p2pAddr}, conn: conn,
+		MsgInQueue: inQ, MsgOutQueue: outQ,
+		sigCh: make(chan struct{}), isOutgoing: isOutgoing,
+		closeOnce: sync.Once{},
+	}, err
+}
+
 func (p2pEndpoint *P2PEndpoint) readerRoutine() {
 	// TODO: fill here
+
+	// TODO: notify the Central controller before closing/returning!
 }
 
 // RunReaderGoroutine runs the goroutine that will read from
@@ -144,6 +170,8 @@ func (p2pEndpoint *P2PEndpoint) RunReaderGoroutine() {
 
 func (p2pEndpoint *P2PEndpoint) writerRoutine() {
 	// TODO: fill here
+
+	// TODO: notify the Central controller before closing/returning!
 }
 
 // RunWriterGoroutine runs the goroutine that will receive an
@@ -155,9 +183,17 @@ func (p2pEndpoint *P2PEndpoint) RunWriterGoroutine() {
 
 // Close method initiates a graceful closing operation without blocking.
 func (p2pEndpoint *P2PEndpoint) Close() error {
-	// TODO: send an InternalMessage to the writer for closing it!
+	p2pEndpoint.closeOnce.Do(func() {
+		// TODO: send an InternalMessage to the writer for closing it!
 
-	// Closing the 'sigCh' channel signals the reader to close itself.
-	close(p2pEndpoint.sigCh)
+		// Closing the 'sigCh' channel signals the reader to close itself.
+		close(p2pEndpoint.sigCh)
+	})
 	return nil
+}
+
+// HaveBothStopped return true iff both the reader and
+// the writer have a STOPPED state.
+func (s *PeerState) HaveBothStopped() bool {
+	return (s.readerState == PeerReaderSTOPPED && s.writerState == PeerWriterSTOPPED)
 }
