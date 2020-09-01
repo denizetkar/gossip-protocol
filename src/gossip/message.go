@@ -48,10 +48,12 @@ const (
 	// MembershipClosedMSG is a notification from the Membership controller to the
 	// Central controller for closing gracefully as requested.
 	MembershipClosedMSG
+)
 
+const (
 	// RandomPeerListRequestMSG is a command from the Gossiper to
 	// the Central controller for requesting a random subset of peers.
-	RandomPeerListRequestMSG = iota + 2000 - (MembershipIncomingPullReplyMSG - 999)
+	RandomPeerListRequestMSG InternalMessageType = iota + 2000
 	// RandomPeerListReplyMSG is a reply from the Central controller to
 	// the Gossiper for requesting a random subset of peers. Usage
 	// counters of the corresponding peers are incremented.
@@ -74,6 +76,9 @@ const (
 	// the Central controller to notify the corresponding API client upon
 	// receiving a gossip of given data type.
 	GossipNotificationMSG
+	// GossipValidationMSG is a notification from the Central controller to
+	// the Gossiper to for an incoming GOSSIP VALIDATION api call.
+	GossipValidationMSG
 	// GossipPushMSG is a command from the Gossiper to the Central
 	// controller to send the GossipPushMSGPayload to the peer specified.
 	GossipPushMSG
@@ -101,10 +106,60 @@ const (
 	// GossiperClosedMSG is a notification from the Gossiper to the
 	// Central controller for closing gracefully as requested.
 	GossiperClosedMSG
-
-	// TODO: Add message types in intervals of 1000 for other submodules such as:
-	//       APIListener, P2PListener, APIEndpoint, P2PEndpoint.
 )
+
+const (
+	// OutgoingP2PCreatedMSG is a reply from a goroutine that created
+	// an outgoing p2p endpoint to the Central controller.
+	OutgoingP2PCreatedMSG InternalMessageType = iota + 3000
+	// CentralProbePeerReplyMSG is a reply from a peer prober to
+	// the Central controller for probing a peer.
+	CentralProbePeerReplyMSG
+	// CentralCrashMSG is a command from a closing timer to the
+	// Central controller to panic and crash.
+	CentralCrashMSG
+	// CentralCloseMSG is a command from the User to the Central controller to close.
+	CentralCloseMSG
+)
+
+const (
+	// APIListenerCrashedMSG is a notification from the api listener to
+	// the Central controller that it crashed.
+	APIListenerCrashedMSG InternalMessageType = iota + 4000
+	// APIListenerClosedMSG is a notification from the api listener to
+	// the Central controller for closing gracefully as requested.
+	APIListenerClosedMSG
+)
+
+const (
+	// APIEndpointCrashedMSG is a notification from the api endpoint to
+	// the Central controller that it crashed.
+	APIEndpointCrashedMSG InternalMessageType = iota + 5000
+	// APIEndpointClosedMSG is a notification from the api endpoint to
+	// the Central controller for closing gracefully as requested.
+	APIEndpointClosedMSG
+)
+
+const (
+	// P2PListenerCrashedMSG is a notification from the p2p listener to
+	// the Central controller that it crashed.
+	P2PListenerCrashedMSG InternalMessageType = iota + 6000
+	// P2PListenerClosedMSG is a notification from the p2p listener to
+	// the Central controller for closing gracefully as requested.
+	P2PListenerClosedMSG
+)
+
+const (
+	// P2PEndpointCrashedMSG is a notification from the p2p endpoint to
+	// the Central controller that it crashed.
+	P2PEndpointCrashedMSG InternalMessageType = iota + 7000
+	// P2PEndpointClosedMSG is a notification from the p2p endpoint to
+	// the Central controller for closing gracefully as requested.
+	P2PEndpointClosedMSG
+)
+
+// TODO: Add more message types for the following submodules:
+//       APIListener, P2PListener, APIEndpoint, P2PEndpoint.
 
 // AnyMessage is the type of any internal message between goroutines
 // of the Gossip module. The contents of these messages MUST NOT be

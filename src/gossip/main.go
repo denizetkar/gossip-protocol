@@ -21,6 +21,15 @@ func newCentralControllerFromConfigFile(configPath string) (*CentralController, 
 		return nil, err
 	}
 
+	// Check if GLOBAL configurations exist.
+	globalConfig, ok := config["GLOBAL"]
+	if !ok {
+		return nil, fmt.Errorf("GLOBAL section cannot be found in the config file: %s", configPath)
+	}
+	hostKeyPath, err := globalConfig.GetStringValue("hostkey")
+	if err != nil {
+		return nil, err
+	}
 	// Check if the configurations for gossip module exist
 	gossipConfig, ok := config["gossip"]
 	if !ok {
@@ -63,7 +72,7 @@ func newCentralControllerFromConfigFile(configPath string) (*CentralController, 
 	}
 
 	centralController, err := NewCentralController(
-		trustedIdentitiesPath, bootstrapper, apiAddr, p2pAddr, cacheSize, degree, maxTTL,
+		hostKeyPath, trustedIdentitiesPath, bootstrapper, apiAddr, p2pAddr, cacheSize, degree, maxTTL,
 	)
 	if err != nil {
 		return nil, err

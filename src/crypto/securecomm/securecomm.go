@@ -3,6 +3,7 @@
 package securecomm
 
 import (
+	"crypto/rsa"
 	"net"
 	"time"
 )
@@ -10,6 +11,12 @@ import (
 // Config is the struct for configuration parameters
 // of either a SecureListener or a SecureConn.
 type Config struct {
+	// TrustedIdentitiesPath is the path to the folder containing the
+	// empty files whose names are hex encoded 'identity' of the trusted peers.
+	// This folder HAS TO contain the identity of the 'bootstrapper' !!!
+	TrustedIdentitiesPath string
+	// HostKey is the variable containing 4096-bit RSA key.
+	HostKey *rsa.PrivateKey
 	// TODO: fill here
 }
 
