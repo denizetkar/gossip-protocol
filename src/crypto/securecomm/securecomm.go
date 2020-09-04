@@ -17,7 +17,6 @@ type Config struct {
 	TrustedIdentitiesPath string
 	// HostKey is the variable containing 4096-bit RSA key.
 	HostKey *rsa.PrivateKey
-	// TODO: fill here
 }
 
 // SecureListener is the secure communication listener.
@@ -33,17 +32,33 @@ type SecureConn struct {
 	conn net.TCPConn
 }
 
+// SecureServer returns a new secure server side connection
+// using TCPConn as the underlying transport.
+func SecureServer(conn *net.TCPConn) *SecureConn {
+	c := &SecureConn{
+		conn: *conn,
+	}
+	return c
+}
+
 // NewListener is the constructor function of SecureListener.
-func NewListener() *SecureListener {
-	// TODO: fill here
-	return nil
+func NewListener(inner *net.TCPListener, config *Config) *SecureListener {
+	return &SecureListener{
+		ln:     *inner,
+		config: config,
+	}
 }
 
 // Listen is the function for creating a secure
 // communication listener.
-func Listen(network, laddr string, config *Config) (*SecureListener, error) {
-	// TODO: fill here
-	return nil, nil
+func Listen(network string, laddr *net.TCPAddr, config *Config) (*SecureListener, error) {
+	//TODO: Check for prerequisitions
+	// Construct a TCPListener
+	ln, err := net.ListenTCP(network, laddr)
+	if err != nil {
+		return nil, err
+	}
+	return NewListener(ln, config), nil
 }
 
 // Dial is the function for creating a secure
@@ -63,15 +78,19 @@ func DialWithDialer(dialer *net.Dialer, network, addr string, config *Config) (*
 // Accept waits for and returns the next incoming secure connection.
 // The returned connection is of type *SecureConn.
 func (l *SecureListener) Accept() (net.Conn, error) {
-	// TODO: fill here
-	return nil, nil
+	c, err := l.ln.AcceptTCP()
+	if err != nil {
+		return nil, err
+	}
+	return SecureServer(c), nil
 }
 
 // Close closes the listener.
 // Any blocked Accept operations will be unblocked and return errors.
 func (l *SecureListener) Close() error {
-	// TODO: fill here
-	return nil
+	//TODO: Shutdown gracefully
+	err := l.Close()
+	return err
 }
 
 // Addr returns the listener's network address, a *TCPAddr.
@@ -96,8 +115,9 @@ func (sc *SecureConn) Write(b []byte) (int, error) {
 
 // Close closes the secure connection properly.
 func (sc *SecureConn) Close() error {
-	// TODO: fill here
-	return nil
+	err := sc.Close()
+	// TODO: check if done properly
+	return err
 }
 
 // LocalAddr returns the local network address.
