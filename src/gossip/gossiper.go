@@ -2,9 +2,9 @@ package main
 
 import (
 	"datastruct/set"
-	"errors"
 	"fmt"
 	"math"
+	"mathutils"
 	"time"
 )
 
@@ -83,7 +83,9 @@ type Gossiper struct {
 func NewGossiper(cacheSize uint16, degree, maxTTL uint8, roundPeriod time.Duration, maxPeers float64,
 	inQ, outQ chan InternalMessage,
 ) (*Gossiper, error) {
-	loglogN := uint8(math.Ceil(math.Log2(math.Log2(maxPeers))))
+	denominator := math.Log2(math.Max(2, float64(degree)))
+	logN := math.Log2(maxPeers) / denominator
+	loglogN := uint8(math.Max(1, math.Ceil(math.Log2(logN)/denominator)))
 	return &Gossiper{
 		cacheSize:          cacheSize,
 		degree:             degree,
@@ -109,11 +111,11 @@ func (gossiper *Gossiper) recover() {
 		// find out exactly what the error was and set err
 		switch x := r.(type) {
 		case string:
-			err = errors.New(x)
+			err = fmt.Errorf(x)
 		case error:
 			err = x
 		default:
-			err = errors.New("Unknown panic in Gossiper")
+			err = fmt.Errorf("Unknown panic in Gossiper")
 		}
 
 		// Clear the input queue.
@@ -130,7 +132,7 @@ func (gossiper *Gossiper) recover() {
 func (gossiper *Gossiper) pushRound() {
 	itemsToRemove := make([]*GossipItem, 0)
 	for item, info := range gossiper.gossipList {
-		peerIndexes := make([]int, gossiper.degree)
+		peerIndexes := make([]int, mathutils.Min(int(gossiper.degree), len(info.peerList)))
 		// Set the peer indexes to gossip this item with as:
 		// (ttl * degree) mod N, ..., (ttl * degree + degree - 1) mod N
 		// where N == len(peerList) .
@@ -155,7 +157,7 @@ func (gossiper *Gossiper) pushRound() {
 			itemsToRemove = append(itemsToRemove, &item)
 		} else if info.s.state == MedianCounterStateC {
 			info.s.counter++
-			if info.s.counter == gossiper.mcConfig.cMax {
+			if info.s.counter >= gossiper.mcConfig.cMax {
 				itemsToRemove = append(itemsToRemove, &item)
 			}
 		}
@@ -299,21 +301,23 @@ func (gossiper *Gossiper) gossipRound() {
 // it receives an internal message of type RandomPeerListReplyMSG.
 func (gossiper *Gossiper) randomPeerListReplyHandler(payload AnyMessage) error {
 	reply, ok := payload.(RandomPeerListReplyMSGPayload)
-	if ok {
-		// If the random peers are for pull request, add them to nextRoundPullPeers.
-		if reply.Related == nil {
-			for _, peer := range reply.RandomPeers {
-				gossiper.nextRoundPullPeers.Add(peer)
-			}
-		} else if info, isMember := gossiper.gossipList[*reply.Related]; isMember {
-			info.peerList = reply.RandomPeers
-		} else {
-			// These random peers are neither for pull nor for push requests. Just release them.
-			gossiper.MsgOutQueue <- InternalMessage{
-				Type:    RandomPeerListReleaseMSG,
-				Payload: RandomPeerListReleaseMSGPayload{reply.RandomPeers}}
-		}
+	if !ok {
+		return nil
 	}
+	// If the random peers are for pull request, add them to nextRoundPullPeers.
+	if reply.Related == nil {
+		for _, peer := range reply.RandomPeers {
+			gossiper.nextRoundPullPeers.Add(peer)
+		}
+	} else if info, isMember := gossiper.gossipList[*reply.Related]; isMember {
+		info.peerList = reply.RandomPeers
+	} else {
+		// These random peers are neither for pull nor for push requests. Just release them.
+		gossiper.MsgOutQueue <- InternalMessage{
+			Type:    RandomPeerListReleaseMSG,
+			Payload: RandomPeerListReleaseMSGPayload{reply.RandomPeers}}
+	}
+
 	return nil
 }
 
@@ -321,35 +325,37 @@ func (gossiper *Gossiper) randomPeerListReplyHandler(payload AnyMessage) error {
 // it receives an internal message of type GossipAnnounceMSG.
 func (gossiper *Gossiper) announceHandler(payload AnyMessage) error {
 	anno, ok := payload.(GossipAnnounceMSGPayload)
-	if ok {
-		if anno.Item != nil {
-			// If gossipList doesn't have space for new gossip items,
-			// then don't even consider the item.
-			if len(gossiper.gossipList) < int(gossiper.cacheSize) {
-				// If the gossip item to announce is old, then ignore it.
-				if _, isMember := gossiper.oldGossipList[*anno.Item]; isMember {
-					return nil
-				}
-				// If the gossip item is already in the gossipList, then ignore it.
-				if _, isMember := gossiper.gossipList[*anno.Item]; isMember {
-					return nil
-				}
-				ttl := gossiper.maxTTL
-				if anno.TTL != 0 {
-					ttl = anno.TTL
-					if ttl > gossiper.maxTTL {
-						ttl = gossiper.maxTTL
-					}
-				}
-				gossiper.gossipList[*anno.Item] = &GossipItemInfoGossiper{
-					s: GossipItemState{state: MedianCounterStateB, counter: 1, medianRule: 0, ttl: ttl}}
-				// Ask for (degree * ttl) random peers for this gossip item.
-				gossiper.MsgOutQueue <- InternalMessage{
-					Type:    RandomPeerListRequestMSG,
-					Payload: RandomPeerListRequestMSGPayload{Related: anno.Item, Num: int(gossiper.degree) * int(ttl)}}
-			}
+	if !ok {
+		return nil
+	}
+	// Make sure the gossip item is not nil. Also if gossipList doesn't
+	// have space for new gossip items, then don't even consider the item.
+	if anno.Item == nil || len(gossiper.gossipList) >= int(gossiper.cacheSize) {
+		return nil
+	}
+	// If the gossip item to announce is old OR if the
+	// gossip item is already in the gossipList, then ignore it.
+	_, isMember := gossiper.oldGossipList[*anno.Item]
+	_, isMember2 := gossiper.gossipList[*anno.Item]
+	if isMember || isMember2 {
+		return nil
+	}
+	// Calculate the TTL for the gossip item.
+	ttl := gossiper.maxTTL
+	if anno.TTL != 0 {
+		ttl = anno.TTL
+		if ttl > gossiper.maxTTL {
+			ttl = gossiper.maxTTL
 		}
 	}
+	// Add the gossip item into the list of new gossips.
+	gossiper.gossipList[*anno.Item] = &GossipItemInfoGossiper{
+		s: GossipItemState{state: MedianCounterStateB, counter: 1, medianRule: 0, ttl: ttl}}
+	// Ask for (degree * ttl) random peers for this gossip item.
+	gossiper.MsgOutQueue <- InternalMessage{
+		Type:    RandomPeerListRequestMSG,
+		Payload: RandomPeerListRequestMSGPayload{Related: anno.Item, Num: int(gossiper.degree) * int(ttl)}}
+
 	return nil
 }
 
@@ -357,18 +363,20 @@ func (gossiper *Gossiper) announceHandler(payload AnyMessage) error {
 // it receives an internal message of type GossipNotifyMSG.
 func (gossiper *Gossiper) notifyHandler(payload AnyMessage) error {
 	ntf, ok := payload.(GossipNotifyMSGPayload)
-	if ok {
-		// If the client is already registered, update its preferences.
-		if info, isMember := gossiper.apiClientsToNotify[ntf.Who]; isMember {
-			info.notifyDataTypes.Add(ntf.What)
-		} else {
-			// If the client is not registered, register it.
-			gossiper.apiClientsToNotify[ntf.Who] = &APIClientInfoGossiper{
-				notifyDataTypes: set.New().Add(ntf.What),
-				validationMap:   map[uint16]*GossipItem{},
-				nextAvailableID: 0}
-		}
+	if !ok {
+		return nil
 	}
+	// If the client is already registered, update its preferences.
+	if info, isMember := gossiper.apiClientsToNotify[ntf.Who]; isMember {
+		info.notifyDataTypes.Add(ntf.What)
+	} else {
+		// If the client is not registered, register it.
+		gossiper.apiClientsToNotify[ntf.Who] = &APIClientInfoGossiper{
+			notifyDataTypes: set.New().Add(ntf.What),
+			validationMap:   map[uint16]*GossipItem{},
+			nextAvailableID: 0}
+	}
+
 	return nil
 }
 
@@ -376,9 +384,11 @@ func (gossiper *Gossiper) notifyHandler(payload AnyMessage) error {
 // it receives an internal message of type GossipUnnofityMSG.
 func (gossiper *Gossiper) unnotifyHandler(payload AnyMessage) error {
 	client, ok := payload.(APIClient)
-	if ok {
-		delete(gossiper.apiClientsToNotify, client)
+	if !ok {
+		return nil
 	}
+	delete(gossiper.apiClientsToNotify, client)
+
 	return nil
 }
 
@@ -386,20 +396,25 @@ func (gossiper *Gossiper) unnotifyHandler(payload AnyMessage) error {
 // it receives an internal message of type GossipValidationMSG.
 func (gossiper *Gossiper) validationHandler(payload AnyMessage) error {
 	val, ok := payload.(GossipValidationMSGPayload)
-	if ok {
-		// If the client who sent the GOSSIP VALIDATION is actually registered
-		// and was sent the corresponding GOSSIP NOTIFICATION, then process it.
-		// Otherwise, ignore the validation call.
-		if info, isMember := gossiper.apiClientsToNotify[val.Who]; isMember {
-			if item, isMember := info.validationMap[val.ID]; isMember {
-				if !val.Valid {
-					delete(gossiper.gossipList, *item)
-					delete(gossiper.incomingGossips, *item)
+	if !ok {
+		return nil
+	}
+	// If the client who sent the GOSSIP VALIDATION is actually registered
+	// and was sent the corresponding GOSSIP NOTIFICATION, then process it.
+	// Otherwise, ignore the validation call.
+	if info, isMember := gossiper.apiClientsToNotify[val.Who]; isMember {
+		if item, isMember := info.validationMap[val.ID]; isMember {
+			if !val.Valid {
+				delete(gossiper.gossipList, *item)
+				delete(gossiper.incomingGossips, *item)
+				gossiper.oldGossipList[*item] = &GossipItemInfoGossiper{
+					s: GossipItemState{state: MedianCounterStateD, ttl: gossiper.maxTTL},
 				}
-				delete(info.validationMap, val.ID)
 			}
+			delete(info.validationMap, val.ID)
 		}
 	}
+
 	return nil
 }
 
@@ -410,112 +425,118 @@ func (gossiper *Gossiper) validationHandler(payload AnyMessage) error {
 // Note that this method doesn't check the remaining capacity of the incomingGossips.
 func (gossiper *Gossiper) checkAndAddIncomingGossip(itemExt *GossipItemExtended) error {
 	// Perform sanity check for the pushed gossip item.
-	if itemExt.Item != nil {
-		var newInfo *GossipItemInfoGossiper = nil
-		switch itemExt.State {
-		case MedianCounterStateB:
-			if itemExt.Counter < gossiper.mcConfig.bMax {
-				newInfo = &GossipItemInfoGossiper{
-					s: GossipItemState{
-						state:      MedianCounterStateB,
-						counter:    itemExt.Counter,
-						medianRule: 0,
-						ttl:        gossiper.maxTTL}}
-			}
-		case MedianCounterStateC:
-			if itemExt.Counter < gossiper.mcConfig.cMax {
-				newInfo = &GossipItemInfoGossiper{
-					s: GossipItemState{
-						state:      MedianCounterStateC,
-						counter:    0,
-						medianRule: 0,
-						ttl:        gossiper.maxTTL}}
-			}
+	if itemExt.Item == nil {
+		return fmt.Errorf("itemExt.Item is nil")
+	}
+	var newInfo *GossipItemInfoGossiper = nil
+	switch itemExt.State {
+	case MedianCounterStateB:
+		if itemExt.Counter < gossiper.mcConfig.bMax {
+			newInfo = &GossipItemInfoGossiper{
+				s: GossipItemState{
+					state:      MedianCounterStateB,
+					counter:    itemExt.Counter,
+					medianRule: 0,
+					ttl:        gossiper.maxTTL}}
 		}
-		if newInfo != nil {
-			// If we already have this gossip item, then store whichever item
-			// has a dominant state.
-			if info, isMember := gossiper.incomingGossips[*itemExt.Item]; isMember {
-				if info.s.Cmp(&newInfo.s) < 0 {
-					gossiper.incomingGossips[*itemExt.Item] = newInfo
-				}
-			} else {
-				// If the gossip item is not in the incomingGossips, just add it.
-				gossiper.incomingGossips[*itemExt.Item] = newInfo
-			}
+	case MedianCounterStateC:
+		if itemExt.Counter < gossiper.mcConfig.cMax {
+			newInfo = &GossipItemInfoGossiper{
+				s: GossipItemState{
+					state:      MedianCounterStateC,
+					counter:    0,
+					medianRule: 0,
+					ttl:        gossiper.maxTTL}}
 		}
 	}
-	return nil
+	if newInfo != nil {
+		// If we already have this gossip item, then store whichever item
+		// has a dominant state.
+		if info, isMember := gossiper.incomingGossips[*itemExt.Item]; isMember {
+			if info.s.Cmp(&newInfo.s) < 0 {
+				gossiper.incomingGossips[*itemExt.Item] = newInfo
+			}
+		} else {
+			// If the gossip item is not in the incomingGossips, just add it.
+			gossiper.incomingGossips[*itemExt.Item] = newInfo
+			return nil
+		}
+	}
+
+	return fmt.Errorf("itemExt.Item is not added")
 }
 
 // incomingPushHandler is the method called by controllerRoutine for when
 // it receives an internal message of type GossipIncomingPushMSG.
 func (gossiper *Gossiper) incomingPushHandler(payload AnyMessage) error {
 	itemExt, ok := payload.(GossipItemExtended)
-	if ok {
-		// If incomingGossips is already full, ignore it.
-		if len(gossiper.incomingGossips) < int(gossiper.cacheSize) {
-			err := gossiper.checkAndAddIncomingGossip(&itemExt)
-			return err
-		}
+	if !ok {
+		return nil
 	}
-	return nil
+	// If incomingGossips is already full, ignore it.
+	if len(gossiper.incomingGossips) >= int(gossiper.cacheSize) {
+		return nil
+	}
+	return gossiper.checkAndAddIncomingGossip(&itemExt)
 }
 
 // incomingPullRequestHandler is the method called by controllerRoutine for when
 // it receives an internal message of type GossipIncomingPullRequestMSG.
 func (gossiper *Gossiper) incomingPullRequestHandler(payload AnyMessage) error {
 	pr, ok := payload.(GossipIncomingPullRequestMSGPayload)
-	if ok {
-		// Reply with a list of gossip items in our gossipList.
-		itemList := make([]*GossipItemExtended, 0)
-		for item, info := range gossiper.gossipList {
-			itemList = append(itemList, &GossipItemExtended{Item: &item, State: info.s.state, Counter: info.s.counter})
-		}
-		// Send the GossipPullReplyMSG to the Central controller.
-		gossiper.MsgOutQueue <- InternalMessage{
-			Type: GossipPullReplyMSG, Payload: GossipPullReplyMSGPayload{To: pr.From, ItemList: itemList}}
+	if !ok {
+		return nil
 	}
+	// Reply with a list of gossip items in our gossipList.
+	itemList := make([]*GossipItemExtended, 0)
+	for item, info := range gossiper.gossipList {
+		itemList = append(itemList, &GossipItemExtended{Item: &item, State: info.s.state, Counter: info.s.counter})
+	}
+	// Send the GossipPullReplyMSG to the Central controller.
+	gossiper.MsgOutQueue <- InternalMessage{
+		Type: GossipPullReplyMSG, Payload: GossipPullReplyMSGPayload{To: pr.From, ItemList: itemList}}
+
 	return nil
 }
 
 // incomingPullReplyHandler is the method called by controllerRoutine for when
 // it receives an internal message of type GossipIncomingPullReplyMSG.
 func (gossiper *Gossiper) incomingPullReplyHandler(payload AnyMessage) error {
-	var err error
 	reply, ok := payload.(GossipIncomingPullReplyMSGPayload)
-	if ok {
-		// Check whether we actually asked for this pull reply.
-		if gossiper.pullPeers.IsMember(reply.From) {
-			upTo := int(gossiper.cacheSize) - len(gossiper.incomingGossips)
-			for _, itemExt := range reply.ItemList[:upTo] {
-				cErr := gossiper.checkAndAddIncomingGossip(itemExt)
-				if cErr != nil {
-					err = cErr
-				}
-			}
-			gossiper.pullPeers.Remove(reply.From)
+	if !ok {
+		return nil
+	}
+	// Check whether we actually asked for this pull reply.
+	if !gossiper.pullPeers.IsMember(reply.From) {
+		return nil
+	}
+	// Process the incoming pull reply.
+	upTo := int(gossiper.cacheSize) - len(gossiper.incomingGossips)
+	for i := 0; i < len(reply.ItemList) && upTo > 0; i++ {
+		if err := gossiper.checkAndAddIncomingGossip(reply.ItemList[i]); err == nil {
+			upTo--
 		}
 	}
-	return err
+	gossiper.pullPeers.Remove(reply.From)
+
+	return nil
 }
 
 // closeHandler is the method called by controllerRoutine for when
 // it receives an internal message of type GossiperCloseMSG.
 func (gossiper *Gossiper) closeHandler(payload AnyMessage) error {
 	_, ok := payload.(void)
-	if ok {
-		// Clear the input queue.
-		for len(gossiper.MsgInQueue) > 0 {
-			<-gossiper.MsgInQueue
-		}
-		// send GossiperClosedMSG to the Central controller!
-		gossiper.MsgOutQueue <- InternalMessage{Type: GossiperClosedMSG, Payload: void{}}
-		// Signal for graceful closure.
-		return &CloseError{}
+	if !ok {
+		return nil
 	}
-
-	return nil
+	// Clear the input queue.
+	for len(gossiper.MsgInQueue) > 0 {
+		<-gossiper.MsgInQueue
+	}
+	// send GossiperClosedMSG to the Central controller!
+	gossiper.MsgOutQueue <- InternalMessage{Type: GossiperClosedMSG, Payload: void{}}
+	// Signal for graceful closure.
+	return &CloseError{}
 }
 
 func (gossiper *Gossiper) controllerRoutine() {
