@@ -7,9 +7,9 @@ import (
 	"datastruct/indexedmap"
 	"datastruct/set"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"math"
 	mrand "math/rand"
 	"net"
@@ -216,6 +216,7 @@ func NewCentralController(
 		p2pAddr:                 p2pAddr,
 		viewList:                indexedmap.New(),
 		awaitingRemovalViewList: map[Peer]*PeerInfoCentral{},
+		activelyCreatedPeers:    map[Peer]bool{},
 		activelyProbedPeers:     map[Peer]bool{},
 		incomingViewList:        map[Peer]*PeerInfoCentral{},
 		incomingViewListMAX:     2 * viewListCap,
@@ -230,18 +231,18 @@ func NewCentralController(
 	}
 	privPem, _ := pem.Decode(priv)
 	if privPem == nil || !strings.Contains(privPem.Type, "PRIVATE KEY") {
-		return nil, errors.New("RSA key is not a valid '.pem' type private key")
+		return nil, fmt.Errorf("RSA key is not a valid '.pem' type private key")
 	}
 	privPemBytes := privPem.Bytes
 	var parsedKey interface{}
 	if parsedKey, err = x509.ParsePKCS1PrivateKey(privPemBytes); err != nil {
 		if parsedKey, err = x509.ParsePKCS8PrivateKey(privPemBytes); err != nil {
-			return nil, errors.New("Unable to parse RSA private key")
+			return nil, fmt.Errorf("Unable to parse RSA private key")
 		}
 	}
 	privateKey, ok := parsedKey.(*rsa.PrivateKey)
 	if !ok {
-		return nil, errors.New("Unable to parse RSA private key")
+		return nil, fmt.Errorf("Unable to parse RSA private key")
 	}
 	centralController.p2pConfig = &securecomm.Config{
 		TrustedIdentitiesPath: trustedIdentitiesPath,
@@ -289,16 +290,15 @@ func (centralController *CentralController) recover() {
 		// find out exactly what the error was and set err
 		switch x := r.(type) {
 		case string:
-			err = errors.New(x)
+			err = fmt.Errorf(x)
 		case error:
 			err = x
 		default:
-			err = errors.New("Unknown panic in Central controller")
+			err = fmt.Errorf("Unknown panic in Central controller")
 		}
 
-		// TODO: Log the crash.
-		fmt.Println(err)
-		os.Exit(1)
+		// Log the crash and exit.
+		log.Fatalln(err)
 	}
 }
 
@@ -306,39 +306,40 @@ func (centralController *CentralController) recover() {
 // it receives an internal message of type PeerAddMSG.
 func (centralController *CentralController) peerAddHandler(payload AnyMessage) error {
 	peer, ok := payload.(Peer)
-	if ok {
-		// If the peer is already in the view list, then nothing more to do.
-		if centralController.viewList.IsMember(peer) {
-			return nil
-		}
-		// If the peer is in the removal view list, then move it back to the view list.
-		if info, isMember := centralController.awaitingRemovalViewList[peer]; isMember {
-			delete(centralController.awaitingRemovalViewList, peer)
-			centralController.viewList.Put(peer, info)
-			return nil
-		}
-		// If the peer is already being created, then
-		// signal it to be not removed later.
-		if _, isMember := centralController.activelyCreatedPeers[peer]; isMember {
-			centralController.activelyCreatedPeers[peer] = false
-			return nil
-		}
-		// If the peer is currently being probed, then signal it to be added later.
-		if _, isMember := centralController.activelyProbedPeers[peer]; isMember {
-			centralController.activelyProbedPeers[peer] = true
-			return nil
-		}
-		// Register this peer as an actively created peer to not be removed later.
-		centralController.activelyCreatedPeers[peer] = false
-		// Create an endpoint for the outgoing p2p connection.
-		go func(peer Peer) {
-			endp, _ := NewP2PEndpoint(
-				peer.Addr, centralController.p2pConfig,
-				make(chan InternalMessage, outQueueSize),
-				centralController.MsgInQueue, true)
-			centralController.MsgInQueue <- InternalMessage{Type: OutgoingP2PCreatedMSG, Payload: endp}
-		}(peer)
+	if !ok {
+		return nil
 	}
+	// If the peer is already in the view list, then nothing more to do.
+	if centralController.viewList.IsMember(peer) {
+		return nil
+	}
+	// If the peer is in the removal view list, then move it back to the view list.
+	if info, isMember := centralController.awaitingRemovalViewList[peer]; isMember {
+		delete(centralController.awaitingRemovalViewList, peer)
+		centralController.viewList.Put(peer, info)
+		return nil
+	}
+	// If the peer is already being created, then
+	// signal it to be not removed later.
+	if _, isMember := centralController.activelyCreatedPeers[peer]; isMember {
+		centralController.activelyCreatedPeers[peer] = false
+		return nil
+	}
+	// If the peer is currently being probed, then signal it to be added later.
+	if _, isMember := centralController.activelyProbedPeers[peer]; isMember {
+		centralController.activelyProbedPeers[peer] = true
+		return nil
+	}
+	// Register this peer as an actively created peer to not be removed later.
+	centralController.activelyCreatedPeers[peer] = false
+	// Create an endpoint for the outgoing p2p connection.
+	go func(peer Peer) {
+		endp, _ := NewP2PEndpoint(
+			peer.Addr, centralController.p2pConfig,
+			make(chan InternalMessage, outQueueSize),
+			centralController.MsgInQueue, true)
+		centralController.MsgInQueue <- InternalMessage{Type: OutgoingP2PCreatedMSG, Payload: endp}
+	}(peer)
 
 	return nil
 }
@@ -347,38 +348,39 @@ func (centralController *CentralController) peerAddHandler(payload AnyMessage) e
 // it receives an internal message of type PeerRemoveMSG.
 func (centralController *CentralController) peerRemoveHandler(payload AnyMessage) error {
 	peer, ok := payload.(Peer)
-	if ok {
-		// If the peer is in the removal view list, then nothing more to do.
-		if _, isMember := centralController.awaitingRemovalViewList[peer]; isMember {
-			return nil
-		}
-		// If the peer is in the view list, then send a command to close.
-		if centralController.viewList.IsMember(peer) {
-			value := centralController.viewList.GetValue(peer)
-			info := value.(*PeerInfoCentral)
-			centralController.viewList.Remove(peer)
-			centralController.awaitingRemovalViewList[peer] = info
-			// If there is no gossip item using this outgoing peer.
-			if info.usageCounter <= 0 {
-				// If the p2p endpoint has already stopped.
-				if info.state.HaveBothStopped() {
-					delete(centralController.awaitingRemovalViewList, peer)
-				} else {
-					info.endpoint.Close()
-				}
+	if !ok {
+		return nil
+	}
+	// If the peer is in the removal view list, then nothing more to do.
+	if _, isMember := centralController.awaitingRemovalViewList[peer]; isMember {
+		return nil
+	}
+	// If the peer is in the view list, then send a command to close.
+	if centralController.viewList.IsMember(peer) {
+		value := centralController.viewList.GetValue(peer)
+		info := value.(*PeerInfoCentral)
+		centralController.viewList.Remove(peer)
+		centralController.awaitingRemovalViewList[peer] = info
+		// If there is no gossip item using this outgoing peer.
+		if info.usageCounter <= 0 {
+			// If the p2p endpoint has already stopped.
+			if info.state.HaveBothStopped() {
+				delete(centralController.awaitingRemovalViewList, peer)
+			} else {
+				info.endpoint.Close()
 			}
-			return nil
 		}
-		// If the peer is currently being created, signal it to be removed later.
-		if _, isMember := centralController.activelyCreatedPeers[peer]; isMember {
-			centralController.activelyCreatedPeers[peer] = true
-			return nil
-		}
-		// If the peer is currently being probed, then signal it to be not added later.
-		if _, isMember := centralController.activelyProbedPeers[peer]; isMember {
-			centralController.activelyProbedPeers[peer] = false
-			return nil
-		}
+		return nil
+	}
+	// If the peer is currently being created, signal it to be removed later.
+	if _, isMember := centralController.activelyCreatedPeers[peer]; isMember {
+		centralController.activelyCreatedPeers[peer] = true
+		return nil
+	}
+	// If the peer is currently being probed, then signal it to be not added later.
+	if _, isMember := centralController.activelyProbedPeers[peer]; isMember {
+		centralController.activelyProbedPeers[peer] = false
+		return nil
 	}
 
 	return nil
@@ -388,31 +390,32 @@ func (centralController *CentralController) peerRemoveHandler(payload AnyMessage
 // it receives an internal message of type ProbePeerRequestMSG.
 func (centralController *CentralController) probePeerRequestHandler(payload AnyMessage) error {
 	peer, ok := payload.(Peer)
-	if ok {
-		// Check if the peer is already in either the view list or the removal view list
-		// or the actively created peer list.
-		_, isMember := centralController.awaitingRemovalViewList[peer]
-		_, isMember2 := centralController.activelyCreatedPeers[peer]
-		if centralController.viewList.IsMember(peer) || isMember || isMember2 {
-			centralController.membershipController.MsgInQueue <- InternalMessage{
-				Type:    ProbePeerReplyMSG,
-				Payload: ProbePeerReplyMSGPayload{Probed: peer, ProbeResult: true},
-			}
-			return nil
-		}
-		// Register the peer for probing.
-		centralController.activelyProbedPeers[peer] = false
-		// Start a goroutine to probe the peer.
-		go func(peer Peer) {
-			conn, err := net.DialTimeout("tcp", peer.Addr, connectionTimeout)
-			probeResult := (err == nil)
-			conn.Close()
-			centralController.MsgInQueue <- InternalMessage{
-				Type:    CentralProbePeerReplyMSG,
-				Payload: CentralProbePeerReplyMSGPayload{Probed: peer, ProbeResult: probeResult},
-			}
-		}(peer)
+	if !ok {
+		return nil
 	}
+	// Check if the peer is already in either the view list or the removal view list
+	// or the actively created peer list.
+	_, isMember := centralController.awaitingRemovalViewList[peer]
+	_, isMember2 := centralController.activelyCreatedPeers[peer]
+	if centralController.viewList.IsMember(peer) || isMember || isMember2 {
+		centralController.membershipController.MsgInQueue <- InternalMessage{
+			Type:    ProbePeerReplyMSG,
+			Payload: ProbePeerReplyMSGPayload{Probed: peer, ProbeResult: true},
+		}
+		return nil
+	}
+	// Register the peer for probing.
+	centralController.activelyProbedPeers[peer] = false
+	// Start a goroutine to probe the peer.
+	go func(peer Peer) {
+		conn, err := net.DialTimeout("tcp", peer.Addr, connectionTimeout)
+		probeResult := (err == nil)
+		conn.Close()
+		centralController.MsgInQueue <- InternalMessage{
+			Type:    CentralProbePeerReplyMSG,
+			Payload: CentralProbePeerReplyMSGPayload{Probed: peer, ProbeResult: probeResult},
+		}
+	}(peer)
 
 	return nil
 }
@@ -421,29 +424,29 @@ func (centralController *CentralController) probePeerRequestHandler(payload AnyM
 // it receives an internal message of type MembershipCrashedMSG.
 func (centralController *CentralController) membershipCrashedHandler(payload AnyMessage) error {
 	err, ok := payload.(error)
-	if ok {
-		// TODO: Log the crash.
-		fmt.Println("Membership controller has crashed.")
-		panic(err)
+	if !ok {
+		return nil
 	}
-
-	return nil
+	// Log the crash.
+	log.Println("Membership controller has crashed.")
+	panic(err)
 }
 
 // membershipClosedHandler is the method called by the Run method for when
 // it receives an internal message of type MembershipClosedMSG.
 func (centralController *CentralController) membershipClosedHandler(payload AnyMessage) error {
 	_, ok := payload.(void)
-	if ok {
-		centralController.membershipController = nil
-		// TODO: Log the graceful closure.
-		fmt.Println("Membership controller is closed.")
+	if !ok {
+		return nil
+	}
+	centralController.membershipController = nil
+	// Log the graceful closure.
+	log.Println("Membership controller is closed.")
 
-		centralController.state.totalGoroutines--
-		if centralController.state.totalGoroutines <= 0 {
-			// Signal for graceful closure.
-			return &CloseError{}
-		}
+	centralController.state.totalGoroutines--
+	if centralController.state.totalGoroutines <= 0 {
+		// Signal for graceful closure.
+		return &CloseError{}
 	}
 
 	return nil
@@ -453,25 +456,26 @@ func (centralController *CentralController) membershipClosedHandler(payload AnyM
 // it receives an internal message of type RandomPeerListRequestMSG.
 func (centralController *CentralController) randomPeerListRequestHandler(payload AnyMessage) error {
 	msg, ok := payload.(RandomPeerListRequestMSGPayload)
-	if ok {
-		// Create a random list of peers as a response.
-		var RandomPeers []Peer
-		// Pick at random msg.Num of the peer in the view list.
-		randomIndexes := mrand.Perm(centralController.viewList.Len())[:msg.Num]
-		for _, i := range randomIndexes {
-			key, _ := centralController.viewList.KeyAtIndex(i)
-			peer := key.(Peer)
-			RandomPeers = append(RandomPeers, peer)
-			// Increment the usage counter
-			value := centralController.viewList.GetValue(key)
-			info := value.(*PeerInfoCentral)
-			info.usageCounter++
-		}
-		// Send the random list of peers as a response back to the Gossiper submodule.
-		centralController.gossiper.MsgInQueue <- InternalMessage{
-			Type:    RandomPeerListReplyMSG,
-			Payload: RandomPeerListReplyMSGPayload{Related: msg.Related, RandomPeers: RandomPeers},
-		}
+	if !ok {
+		return nil
+	}
+	// Create a random list of peers as a response.
+	var RandomPeers []Peer
+	// Pick at random msg.Num of the peer in the view list.
+	randomIndexes := mrand.Perm(centralController.viewList.Len())[:msg.Num]
+	for _, i := range randomIndexes {
+		key, _ := centralController.viewList.KeyAtIndex(i)
+		peer := key.(Peer)
+		RandomPeers = append(RandomPeers, peer)
+		// Increment the usage counter
+		value := centralController.viewList.GetValue(key)
+		info := value.(*PeerInfoCentral)
+		info.usageCounter++
+	}
+	// Send the random list of peers as a response back to the Gossiper submodule.
+	centralController.gossiper.MsgInQueue <- InternalMessage{
+		Type:    RandomPeerListReplyMSG,
+		Payload: RandomPeerListReplyMSGPayload{Related: msg.Related, RandomPeers: RandomPeers},
 	}
 
 	return nil
@@ -481,37 +485,38 @@ func (centralController *CentralController) randomPeerListRequestHandler(payload
 // it receives an internal message of type RandomPeerListReleaseMSG.
 func (centralController *CentralController) randomPeerListReleaseHandler(payload AnyMessage) error {
 	msg, ok := payload.(RandomPeerListReleaseMSGPayload)
-	if ok {
-		peerList := msg.ReleasedPeers
-		if peerList == nil {
-			return nil
-		}
-		// Decrement the usage counters of each peer.
-		for _, peer := range peerList {
-			// Check if the peer is either in the view list or the removal view list.
-			if centralController.viewList.IsMember(peer) {
-				value := centralController.viewList.GetValue(peer)
-				info := value.(*PeerInfoCentral)
-				info.usageCounter--
-			} else if info, isMember := centralController.awaitingRemovalViewList[peer]; isMember {
-				info.usageCounter--
-				// If there is no gossip item using this outgoing peer.
-				if info.usageCounter <= 0 {
-					// If the p2p endpoint has already stopped.
-					if info.state.HaveBothStopped() {
-						delete(centralController.awaitingRemovalViewList, peer)
-					} else {
-						info.endpoint.Close()
-					}
+	if !ok {
+		return nil
+	}
+	peerList := msg.ReleasedPeers
+	if peerList == nil {
+		return nil
+	}
+	// Decrement the usage counters of each peer.
+	for _, peer := range peerList {
+		// Check if the peer is either in the view list or the removal view list.
+		if centralController.viewList.IsMember(peer) {
+			value := centralController.viewList.GetValue(peer)
+			info := value.(*PeerInfoCentral)
+			info.usageCounter--
+		} else if info, isMember := centralController.awaitingRemovalViewList[peer]; isMember {
+			info.usageCounter--
+			// If there is no gossip item using this outgoing peer.
+			if info.usageCounter <= 0 {
+				// If the p2p endpoint has already stopped.
+				if info.state.HaveBothStopped() {
+					delete(centralController.awaitingRemovalViewList, peer)
+				} else {
+					info.endpoint.Close()
 				}
-			} else {
-				// An outgoing p2p endpoint should not have been deleted before
-				// (usageCounter <= 0). Unless the User requested a shutdown. But during
-				// a shutdown, this event handler cannot be called, so the code must
-				// have never reached here!
-				// TODO: log this unexpected event.
-				fmt.Println("Outgoing P2P endpoint", peer.Addr, "was deleted before (usageCounter <= 0).")
 			}
+		} else {
+			// An outgoing p2p endpoint should not have been deleted before
+			// (usageCounter <= 0). Unless the User requested a shutdown. But during
+			// a shutdown, this event handler cannot be called, so the code must
+			// have never reached here!
+			// Log this unexpected event.
+			log.Println("Outgoing P2P endpoint", peer.Addr, "was deleted before (usageCounter <= 0).")
 		}
 	}
 
@@ -522,29 +527,29 @@ func (centralController *CentralController) randomPeerListReleaseHandler(payload
 // it receives an internal message of type GossiperCrashedMSG.
 func (centralController *CentralController) gossiperCrashedHandler(payload AnyMessage) error {
 	err, ok := payload.(error)
-	if ok {
-		// TODO: Log the crash.
-		fmt.Println("Gossiper has crashed.")
-		panic(err)
+	if !ok {
+		return nil
 	}
-
-	return nil
+	// Log the crash.
+	log.Println("Gossiper has crashed.")
+	panic(err)
 }
 
 // gossiperClosedHandler is the method called by the Run method for when
 // it receives an internal message of type GossiperClosedMSG.
 func (centralController *CentralController) gossiperClosedHandler(payload AnyMessage) error {
 	_, ok := payload.(void)
-	if ok {
-		centralController.gossiper = nil
-		// TODO: Log the graceful closure.
-		fmt.Println("Gossiper controller is closed.")
+	if !ok {
+		return nil
+	}
+	centralController.gossiper = nil
+	// Log the graceful closure.
+	log.Println("Gossiper controller is closed.")
 
-		centralController.state.totalGoroutines--
-		if centralController.state.totalGoroutines <= 0 {
-			// Signal for graceful closure.
-			return &CloseError{}
-		}
+	centralController.state.totalGoroutines--
+	if centralController.state.totalGoroutines <= 0 {
+		// Signal for graceful closure.
+		return &CloseError{}
 	}
 
 	return nil
@@ -554,30 +559,30 @@ func (centralController *CentralController) gossiperClosedHandler(payload AnyMes
 // it receives an internal message of type APIListenerCrashedMSG.
 func (centralController *CentralController) apiListenerCrashedHandler(payload AnyMessage) error {
 	err, ok := payload.(error)
-	if ok {
-		// TODO: Log the crash.
-		fmt.Println("API listener has crashed.")
-		panic(err)
+	if !ok {
+		return nil
 	}
-
-	return nil
+	// Log the crash.
+	log.Println("API listener has crashed.")
+	panic(err)
 }
 
 // apiListenerClosedHandler is the method called by the Run method for when
 // it receives an internal message of type APIListenerClosedMSG.
 func (centralController *CentralController) apiListenerClosedHandler(payload AnyMessage) error {
 	_, ok := payload.(void)
-	if ok {
-		centralController.apiListener = nil
-		// TODO: Log the graceful closure.
-		fmt.Println("API listener is closed.")
+	if !ok {
+		return nil
+	}
+	centralController.apiListener = nil
+	// Log the graceful closure.
+	log.Println("API listener is closed.")
 
-		centralController.state.totalGoroutines--
-		// Check if all submodules (goroutines) are closed.
-		if centralController.state.totalGoroutines <= 0 {
-			// Signal for graceful closure.
-			return &CloseError{}
-		}
+	centralController.state.totalGoroutines--
+	// Check if all submodules (goroutines) are closed.
+	if centralController.state.totalGoroutines <= 0 {
+		// Signal for graceful closure.
+		return &CloseError{}
 	}
 
 	return nil
@@ -611,14 +616,17 @@ func (centralController *CentralController) apiEndpointClosed(
 	// Check if both reader and writer are stopped.
 	if info.state.HaveBothStopped() {
 		delete(centralController.apiClients, endp.apiClient)
+		// Close the connection inside the endpoint.
+		go func() {
+			endp.conn.Close()
+		}()
 		// Check if the api endpoint is not supposed to be closed.
 		if info.hasCrashed {
-			// TODO: Log the unexpected closure.
-			fmt.Println("API endpoint", endp.apiClient.addr, "has crashed.")
-			fmt.Println(err)
+			// Log the unexpected closure.
+			log.Println(fmt.Sprintf("%s%s", fmt.Sprintln("API endpoint", endp.apiClient.addr, "has crashed."), err))
 		} else {
-			// TODO: Log the graceful closure.
-			fmt.Println("API endpoint", endp.apiClient.addr, "is closed.")
+			// Log the graceful closure.
+			log.Println("API endpoint", endp.apiClient.addr, "is closed.")
 		}
 		// Let the Gossiper know about the removed endpoint.
 		centralController.gossiper.MsgInQueue <- InternalMessage{
@@ -640,52 +648,50 @@ func (centralController *CentralController) apiEndpointClosed(
 // it receives an internal message of type APIEndpointCrashedMSG.
 func (centralController *CentralController) apiEndpointCrashedHandler(payload AnyMessage) error {
 	msg, ok := payload.(APIEndpointCrashedMSGPayload)
-	if ok {
-		return centralController.apiEndpointClosed(msg.endp, msg.isReader, msg.err)
+	if !ok {
+		return nil
 	}
-
-	return nil
+	return centralController.apiEndpointClosed(msg.endp, msg.isReader, msg.err)
 }
 
 // apiEndpointClosedHandler is the method called by the Run method for when
 // it receives an internal message of type APIEndpointClosedMSG.
 func (centralController *CentralController) apiEndpointClosedHandler(payload AnyMessage) error {
 	msg, ok := payload.(APIEndpointClosedMSGPayload)
-	if ok {
-		return centralController.apiEndpointClosed(msg.endp, msg.isReader, nil)
+	if !ok {
+		return nil
 	}
-
-	return nil
+	return centralController.apiEndpointClosed(msg.endp, msg.isReader, nil)
 }
 
 // p2pListenerCrashedHandler is the method called by the Run method for when
 // it receives an internal message of type P2PListenerCrashedMSG.
 func (centralController *CentralController) p2pListenerCrashedHandler(payload AnyMessage) error {
 	err, ok := payload.(error)
-	if ok {
-		// TODO: Log the crash.
-		fmt.Println("P2P listener has crashed.")
-		panic(err)
+	if !ok {
+		return nil
 	}
-
-	return nil
+	// Log the crash.
+	log.Println("P2P listener has crashed.")
+	panic(err)
 }
 
 // p2pListenerClosedHandler is the method called by the Run method for when
 // it receives an internal message of type P2PListenerClosedMSG.
 func (centralController *CentralController) p2pListenerClosedHandler(payload AnyMessage) error {
 	_, ok := payload.(void)
-	if ok {
-		centralController.p2pListener = nil
-		// TODO: Log the graceful closure.
-		fmt.Println("P2P listener is closed.")
+	if !ok {
+		return nil
+	}
+	centralController.p2pListener = nil
+	// Log the graceful closure.
+	log.Println("P2P listener is closed.")
 
-		centralController.state.totalGoroutines--
-		// Check if all submodules (goroutines) are closed.
-		if centralController.state.totalGoroutines <= 0 {
-			// Signal for graceful closure.
-			return &CloseError{}
-		}
+	centralController.state.totalGoroutines--
+	// Check if all submodules (goroutines) are closed.
+	if centralController.state.totalGoroutines <= 0 {
+		// Signal for graceful closure.
+		return &CloseError{}
 	}
 
 	return nil
@@ -698,46 +704,39 @@ func (centralController *CentralController) outgoingPeerCompletelyClosed(
 	peer := info.endpoint.peer
 	// Check if the p2p endpoint is not supposed to be closed.
 	if info.hasCrashed {
-		// TODO: Log the unexpected closure.
-		fmt.Println("Outgoing P2P endpoint", peer.Addr, "has crashed.")
-		fmt.Println(err)
-		if centralController.state.isStopping {
-			// If it was the User that ordered the closure, remove as soon as
-			// both the reader and the writer goroutines are stopped.
-			centralController.viewList.Remove(peer)
-			delete(centralController.awaitingRemovalViewList, peer)
-		} else if !isInRemovalList {
-			// If this p2p endpoint was not removed by the Membership controller, then
-			// let the Membership controller know about the abruptly removed endpoint.
-			centralController.membershipController.MsgInQueue <- InternalMessage{
-				Type: PeerDisconnectedMSG, Payload: peer}
-		} else if info.usageCounter <= 0 {
-			// If this p2p endpoint was removed by the orders of the Membership
-			// controller, then check if the usage counter reached 0. If so, then
-			// delete it.
-			delete(centralController.awaitingRemovalViewList, peer)
-		}
+		// Log the unexpected closure.
+		log.Println(fmt.Sprintf("%s%s", fmt.Sprintln("Outgoing P2P endpoint", peer.Addr, "has crashed."), err))
 	} else {
-		// TODO: Log the graceful closure.
-		fmt.Println("Outgoing P2P endpoint", peer.Addr, "is closed.")
-		if centralController.state.isStopping {
-			// If it was the User that ordered the closure, remove as soon as
-			// both the reader and the writer goroutines are stopped.
-			centralController.viewList.Remove(peer)
-			delete(centralController.awaitingRemovalViewList, peer)
-		} else if !isInRemovalList {
+		// Log the graceful closure.
+		log.Println("Outgoing P2P endpoint", peer.Addr, "is closed.")
+	}
+	if centralController.state.isStopping {
+		// If it was the User that ordered the closure, remove as soon as
+		// both the reader and the writer goroutines are stopped.
+		centralController.viewList.Remove(peer)
+		delete(centralController.awaitingRemovalViewList, peer)
+	} else if !isInRemovalList {
+		// If this p2p endpoint was not removed by the Membership controller, then
+		// let the Membership controller know about the abruptly removed endpoint.
+		centralController.membershipController.MsgInQueue <- InternalMessage{
+			Type: PeerDisconnectedMSG, Payload: peer}
+		if !info.hasCrashed {
 			// If this p2p endpoint was not removed by the Membership controller, then
 			// it must not have gracefully closed!
-			// TODO: log this unexpected event.
-			fmt.Println("Outgoing P2P endpoint", peer.Addr, "is closed without "+
+			// Log this unexpected event.
+			log.Println("Outgoing P2P endpoint", peer.Addr, "is closed without "+
 				"the explicit request of neither the User nor the Membership controller!")
-		} else if info.usageCounter <= 0 {
-			// If this p2p endpoint was removed by the orders of the Membership
-			// controller, then check if the usage counter reached 0. If so, then
-			// delete it.
-			delete(centralController.awaitingRemovalViewList, peer)
 		}
+	} else if info.usageCounter <= 0 {
+		// If this p2p endpoint was removed by the orders of the Membership
+		// controller, then check if the usage counter reached 0. If so, then
+		// delete it.
+		delete(centralController.awaitingRemovalViewList, peer)
 	}
+	// Close the connection inside the endpoint.
+	go func() {
+		info.endpoint.conn.Close()
+	}()
 	// Check if all submodules (goroutines) are closed.
 	if centralController.state.totalGoroutines <= 0 {
 		// Signal for graceful closure.
@@ -818,14 +817,17 @@ func (centralController *CentralController) incomingPeerClosed(
 	// Check if both reader and writer are stopped.
 	if info.state.HaveBothStopped() {
 		delete(centralController.incomingViewList, endp.peer)
+		// Close the connection inside the endpoint.
+		go func() {
+			endp.conn.Close()
+		}()
 		// Check if the p2p endpoint is not supposed to be closed.
 		if info.hasCrashed {
-			// TODO: Log the unexpected closure.
-			fmt.Println("Incoming P2P endpoint", endp.peer.Addr, "has crashed.")
-			fmt.Println(err)
+			// Log the unexpected closure.
+			log.Println(fmt.Sprintf("%s%s", fmt.Sprintln("Incoming P2P endpoint", endp.peer.Addr, "has crashed."), err))
 		} else {
-			// TODO: Log the graceful closure.
-			fmt.Println("Incoming P2P endpoint", endp.peer.Addr, "is closed.")
+			// Log the graceful closure.
+			log.Println("Incoming P2P endpoint", endp.peer.Addr, "is closed.")
 		}
 		// Check if all submodules (goroutines) are closed.
 		if centralController.state.totalGoroutines <= 0 {
@@ -844,62 +846,65 @@ func (centralController *CentralController) incomingPeerClosed(
 // it receives an internal message of type P2PEndpointCrashedMSG.
 func (centralController *CentralController) p2pEndpointCrashedHandler(payload AnyMessage) error {
 	msg, ok := payload.(P2PEndpointCrashedMSGPayload)
-	if ok {
-		if msg.endp.isOutgoing {
-			return centralController.outgoingPeerClosed(msg.endp, msg.isReader, msg.err)
-		}
-		return centralController.incomingPeerClosed(msg.endp, msg.isReader, msg.err)
+	if !ok {
+		return nil
 	}
-
-	return nil
+	if msg.endp.isOutgoing {
+		return centralController.outgoingPeerClosed(msg.endp, msg.isReader, msg.err)
+	}
+	return centralController.incomingPeerClosed(msg.endp, msg.isReader, msg.err)
 }
 
 // p2pEndpointClosedHandler is the method called by the Run method for when
 // it receives an internal message of type P2PEndpointClosedMSG.
 func (centralController *CentralController) p2pEndpointClosedHandler(payload AnyMessage) error {
 	msg, ok := payload.(P2PEndpointClosedMSGPayload)
-	if ok {
-		if msg.endp.isOutgoing {
-			return centralController.outgoingPeerClosed(msg.endp, msg.isReader, nil)
-		}
-		return centralController.incomingPeerClosed(msg.endp, msg.isReader, nil)
+	if !ok {
+		return nil
 	}
-
-	return nil
+	if msg.endp.isOutgoing {
+		return centralController.outgoingPeerClosed(msg.endp, msg.isReader, nil)
+	}
+	return centralController.incomingPeerClosed(msg.endp, msg.isReader, nil)
 }
 
 // outgoingP2PCreatedHandler is the method called by the Run method for when
 // it receives an internal message of type OutgoingP2PCreatedMSG.
 func (centralController *CentralController) outgoingP2PCreatedHandler(payload AnyMessage) error {
 	endp, ok := payload.(*P2PEndpoint)
-	if ok {
-		// Check if the peer of this endpoint was registered.
-		isToBeRemoved, isMember := centralController.activelyCreatedPeers[endp.peer]
-		if !isMember {
-			// TODO: log this unexpected event.
-			fmt.Println("Outgoing P2P endpoint", endp.peer.Addr, "was created without registration!")
-			return nil
-		}
-		delete(centralController.activelyCreatedPeers, endp.peer)
-		// Start running the reader and writer goroutines.
-		endp.RunReaderGoroutine()
-		endp.RunWriterGoroutine()
-		// Account for the reader and writer goroutines.
-		centralController.state.totalGoroutines += 2
-		// Add the peer into the view list.
-		centralController.viewList.Put(endp.peer,
-			&PeerInfoCentral{
-				endpoint: endp, usageCounter: 0,
-				state: PeerState{
-					readerState: PeerReaderRUNNING,
-					writerState: PeerWriterRUNNING},
-				hasCrashed: false,
-			})
-		// If this peer was attempted to be removed before creation
-		// was done, then let it be removed.
-		if isToBeRemoved {
-			centralController.MsgInQueue <- InternalMessage{Type: PeerRemoveMSG, Payload: endp.peer}
-		}
+	if !ok {
+		return nil
+	}
+	// Check if the peer of this endpoint was registered.
+	isToBeRemoved, isMember := centralController.activelyCreatedPeers[endp.peer]
+	if !isMember {
+		// Log this unexpected event.
+		log.Println("Outgoing P2P endpoint", endp.peer.Addr, "was created without registration!")
+		// Close the connection inside the endpoint.
+		go func() {
+			endp.conn.Close()
+		}()
+		return nil
+	}
+	delete(centralController.activelyCreatedPeers, endp.peer)
+	// Start running the reader and writer goroutines.
+	endp.RunReaderGoroutine()
+	endp.RunWriterGoroutine()
+	// Account for the reader and writer goroutines.
+	centralController.state.totalGoroutines += 2
+	// Add the peer into the view list.
+	centralController.viewList.Put(endp.peer,
+		&PeerInfoCentral{
+			endpoint: endp, usageCounter: 0,
+			state: PeerState{
+				readerState: PeerReaderRUNNING,
+				writerState: PeerWriterRUNNING},
+			hasCrashed: false,
+		})
+	// If this peer was attempted to be removed before creation
+	// was done, then let it be removed.
+	if isToBeRemoved {
+		centralController.MsgInQueue <- InternalMessage{Type: PeerRemoveMSG, Payload: endp.peer}
 	}
 
 	return nil
@@ -909,25 +914,26 @@ func (centralController *CentralController) outgoingP2PCreatedHandler(payload An
 // it receives an internal message of type CentralProbePeerReplyMSG.
 func (centralController *CentralController) centralProbePeerReplyHandler(payload AnyMessage) error {
 	msg, ok := payload.(CentralProbePeerReplyMSGPayload)
-	if ok {
-		// Check if for some unexpected reason the probed peer is not registered.
-		addPeer, isMember := centralController.activelyProbedPeers[msg.Probed]
-		if !isMember {
-			// TODO: log this unexpected event.
-			fmt.Println("Peer", msg.Probed.Addr, "was probed without registration!")
-			return nil
-		}
-		delete(centralController.activelyProbedPeers, msg.Probed)
-		// Send the probe results back to the Membership controller.
-		centralController.membershipController.MsgInQueue <- InternalMessage{
-			Type:    ProbePeerReplyMSG,
-			Payload: ProbePeerReplyMSGPayload{Probed: msg.Probed, ProbeResult: msg.ProbeResult},
-		}
-		// If this peer was attempted to be added before probing
-		// was done, then let it be added.
-		if addPeer {
-			centralController.MsgInQueue <- InternalMessage{Type: PeerAddMSG, Payload: msg.Probed}
-		}
+	if !ok {
+		return nil
+	}
+	// Check if for some unexpected reason the probed peer is not registered.
+	addPeer, isMember := centralController.activelyProbedPeers[msg.Probed]
+	if !isMember {
+		// Log this unexpected event.
+		log.Println("Peer", msg.Probed.Addr, "was probed without registration!")
+		return nil
+	}
+	delete(centralController.activelyProbedPeers, msg.Probed)
+	// Send the probe results back to the Membership controller.
+	centralController.membershipController.MsgInQueue <- InternalMessage{
+		Type:    ProbePeerReplyMSG,
+		Payload: ProbePeerReplyMSGPayload{Probed: msg.Probed, ProbeResult: msg.ProbeResult},
+	}
+	// If this peer was attempted to be added before probing
+	// was done, then let it be added.
+	if addPeer {
+		centralController.MsgInQueue <- InternalMessage{Type: PeerAddMSG, Payload: msg.Probed}
 	}
 
 	return nil
@@ -937,52 +943,52 @@ func (centralController *CentralController) centralProbePeerReplyHandler(payload
 // it receives an internal message of type CentralCrashMSG.
 func (centralController *CentralController) crashHandler(payload AnyMessage) error {
 	err, ok := payload.(error)
-	if ok {
-		panic(err)
+	if !ok {
+		return nil
 	}
-
-	return nil
+	panic(err)
 }
 
 // closeHandler is the method called by the Run method for when
 // it receives an internal message of type CentralCloseMSG.
 func (centralController *CentralController) closeHandler(payload AnyMessage) error {
 	_, ok := payload.(void)
-	if ok {
-		// TODO: Log the graceful closure.
-		fmt.Println("Central controller is closing.")
-		// Before closing the Central controller, make sure to have already
-		// closed all other submodules (goroutines)!
-		centralController.apiListener.Close()
-		centralController.p2pListener.Close()
-		centralController.membershipController.MsgInQueue <- InternalMessage{Type: MembershipCloseMSG, Payload: void{}}
-		centralController.gossiper.MsgInQueue <- InternalMessage{Type: GossiperCloseMSG, Payload: void{}}
-		for _, valueAndIndex := range centralController.viewList.Iterate() {
-			info := valueAndIndex.Value.(*PeerInfoCentral)
-			info.endpoint.Close()
-		}
-		for _, info := range centralController.awaitingRemovalViewList {
-			info.endpoint.Close()
-		}
-		// Signal all actively created outgoing p2p endpoints to be removed later.
-		for peer := range centralController.activelyCreatedPeers {
-			centralController.activelyCreatedPeers[peer] = true
-		}
-		// Signal all actively probed peers to be not added later.
-		for peer := range centralController.activelyProbedPeers {
-			centralController.activelyProbedPeers[peer] = false
-		}
-		for _, info := range centralController.apiClients {
-			info.endpoint.Close()
-		}
-
-		centralController.state.isStopping = true
-		go func() {
-			time.Sleep(closureTimeout)
-			centralController.MsgInQueue <- InternalMessage{
-				Type: CentralCrashMSG, Payload: errors.New("graceful closure timed out")}
-		}()
+	if !ok {
+		return nil
 	}
+	// Log the graceful closure.
+	log.Println("Central controller is closing.")
+	// Before closing the Central controller, make sure to have already
+	// closed all other submodules (goroutines)!
+	centralController.apiListener.Close()
+	centralController.p2pListener.Close()
+	centralController.membershipController.MsgInQueue <- InternalMessage{Type: MembershipCloseMSG, Payload: void{}}
+	centralController.gossiper.MsgInQueue <- InternalMessage{Type: GossiperCloseMSG, Payload: void{}}
+	for _, valueAndIndex := range centralController.viewList.Iterate() {
+		info := valueAndIndex.Value.(*PeerInfoCentral)
+		info.endpoint.Close()
+	}
+	for _, info := range centralController.awaitingRemovalViewList {
+		info.endpoint.Close()
+	}
+	// Signal all actively created outgoing p2p endpoints to be removed later.
+	for peer := range centralController.activelyCreatedPeers {
+		centralController.activelyCreatedPeers[peer] = true
+	}
+	// Signal all actively probed peers to be not added later.
+	for peer := range centralController.activelyProbedPeers {
+		centralController.activelyProbedPeers[peer] = false
+	}
+	for _, info := range centralController.apiClients {
+		info.endpoint.Close()
+	}
+
+	centralController.state.isStopping = true
+	go func() {
+		time.Sleep(closureTimeout)
+		centralController.MsgInQueue <- InternalMessage{
+			Type: CentralCrashMSG, Payload: fmt.Errorf("graceful closure timed out")}
+	}()
 
 	return nil
 }

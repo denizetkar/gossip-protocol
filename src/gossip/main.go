@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -82,10 +83,19 @@ func newCentralControllerFromConfigFile(configPath string) (*CentralController, 
 }
 
 func main() {
-	configPath := filepath.Join(gossipWorkspacePath, "config", "config.ini")
-	centralController, err := newCentralControllerFromConfigFile(configPath)
+	// Set global logging settings.
+	log.SetOutput(os.Stdout)
+	log.SetFlags(log.Ldate | log.Ltime | log.LUTC)
+
+	// Take config file path as a command line argument.
+	defaultConfigPath := filepath.Join(gossipWorkspacePath, "config", "config.ini")
+	configPath := flag.String("config_path", defaultConfigPath, "a file path string for the configuration")
+	// Create a central controller and run it.
+	centralController, err := newCentralControllerFromConfigFile(*configPath)
 	if err != nil {
+		// Log the error and exit.
 		log.Fatalln(err)
 	}
-	fmt.Println(centralController)
+	log.Println(centralController)
+	//centralController.Run()
 }

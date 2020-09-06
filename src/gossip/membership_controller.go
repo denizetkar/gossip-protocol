@@ -9,7 +9,6 @@ import (
 	"datastruct/indexedmap"
 	"datastruct/indexedset"
 	"datastruct/set"
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -148,11 +147,11 @@ func (p *MinWiseIndependentPermutation) Permute(peer *Peer) (pVal []byte, err er
 			// find out exactly what the error was and set err
 			switch x := r.(type) {
 			case string:
-				err = errors.New(x)
+				err = fmt.Errorf(x)
 			case error:
 				err = x
 			default:
-				err = errors.New("Unknown panic in MinWiseIndependentPermutation::Permute")
+				err = fmt.Errorf("Unknown panic in MinWiseIndependentPermutation::Permute")
 			}
 		}
 	}()
@@ -278,11 +277,11 @@ func (membershipController *MembershipController) recover() {
 		// find out exactly what the error was and set err
 		switch x := r.(type) {
 		case string:
-			err = errors.New(x)
+			err = fmt.Errorf(x)
 		case error:
 			err = x
 		default:
-			err = errors.New("Unknown panic in MembershipController")
+			err = fmt.Errorf("Unknown panic in MembershipController")
 		}
 
 		// Clear the input queue.
@@ -495,7 +494,7 @@ func (membershipController *MembershipController) updateSampleRound() {
 		peer := peerSampler.Sample()
 		value := membershipController.sampleList.GetValue(peer)
 		if value == nil {
-			peerSamplerSet := set.New().Add(peer)
+			peerSamplerSet := set.New().Add(peerSampler)
 			membershipController.sampleList.Put(peer, peerSamplerSet)
 		} else {
 			peerSamplerSet := value.(set.Set)
@@ -540,9 +539,10 @@ func (membershipController *MembershipController) bootstrap() {
 // it receives an internal message of type PeerDisconnectedMSG.
 func (membershipController *MembershipController) peerDisconnectedHandler(payload AnyMessage) error {
 	peer, ok := payload.(Peer)
-	if ok {
-		membershipController.removePeer(peer)
+	if !ok {
+		return nil
 	}
+	membershipController.removePeer(peer)
 
 	return nil
 }
@@ -551,11 +551,12 @@ func (membershipController *MembershipController) peerDisconnectedHandler(payloa
 // it receives an internal message of type ProbePeerReplyMSG.
 func (membershipController *MembershipController) probePeerReplyHandler(payload AnyMessage) error {
 	reply, ok := payload.(ProbePeerReplyMSGPayload)
-	if ok {
-		if reply.ProbeResult == false {
-			peer := reply.Probed
-			membershipController.removePeer(peer)
-		}
+	if !ok {
+		return nil
+	}
+	if reply.ProbeResult == false {
+		peer := reply.Probed
+		membershipController.removePeer(peer)
 	}
 
 	return nil
@@ -565,16 +566,17 @@ func (membershipController *MembershipController) probePeerReplyHandler(payload 
 // it receives an internal message of type MembershipIncomingPushRequestMSG.
 func (membershipController *MembershipController) incomingPushRequestHandler(payload AnyMessage) error {
 	pr, ok := payload.(MembershipPushRequestMSGPayload)
-	if ok {
-		if time.Now().UTC().Sub(pr.When) <= membershipController.powConfig.validityDuration &&
-			pr.To.Addr == membershipController.p2pAddr {
-			k := PoWThreshold(membershipController.powConfig.repetition, 256)
-			hashVal, err := pr.HashVal(membershipController.powConfig.hardness)
-			if err == nil && hashVal.Cmp(k) <= 0 {
-				// If the pushed peer is valid, then add to pushRequests.
-				if pr.From.ValidateAddr() == nil {
-					membershipController.pushRequests.Add(pr.From)
-				}
+	if !ok {
+		return nil
+	}
+	if time.Now().UTC().Sub(pr.When) <= membershipController.powConfig.validityDuration &&
+		pr.To.Addr == membershipController.p2pAddr {
+		k := PoWThreshold(membershipController.powConfig.repetition, 256)
+		hashVal, err := pr.HashVal(membershipController.powConfig.hardness)
+		if err == nil && hashVal.Cmp(k) <= 0 {
+			// If the pushed peer is valid, then add to pushRequests.
+			if pr.From.ValidateAddr() == nil {
+				membershipController.pushRequests.Add(pr.From)
 			}
 		}
 	}
@@ -586,15 +588,16 @@ func (membershipController *MembershipController) incomingPushRequestHandler(pay
 // it receives an internal message of type MembershipIncomingPullRequestMSG.
 func (membershipController *MembershipController) incomingPullRequestHandler(payload AnyMessage) error {
 	pr, ok := payload.(MembershipIncomingPullRequestMSGPayload)
-	if ok {
-		reply := MembershipPullReplyMSGPayload{To: pr.From}
-		for elem := range membershipController.viewList.Iterate() {
-			peer := elem.(Peer)
-			reply.ViewList = append(reply.ViewList, peer)
-		}
-		// Send the pull reply back to the Central controller.
-		membershipController.MsgOutQueue <- InternalMessage{Type: MembershipPullReplyMSG, Payload: reply}
+	if !ok {
+		return nil
 	}
+	reply := MembershipPullReplyMSGPayload{To: pr.From}
+	for elem := range membershipController.viewList.Iterate() {
+		peer := elem.(Peer)
+		reply.ViewList = append(reply.ViewList, peer)
+	}
+	// Send the pull reply back to the Central controller.
+	membershipController.MsgOutQueue <- InternalMessage{Type: MembershipPullReplyMSG, Payload: reply}
 
 	return nil
 }
@@ -603,16 +606,17 @@ func (membershipController *MembershipController) incomingPullRequestHandler(pay
 // it receives an internal message of type MembershipIncomingPullReplyMSG.
 func (membershipController *MembershipController) incomingPullReplyHandler(payload AnyMessage) error {
 	reply, ok := payload.(MembershipIncomingPullReplyMSGPayload)
-	if ok {
-		// Check if we actually asked for this pull reply.
-		if membershipController.pullPeers.IsMember(reply.From) {
-			membershipController.pullPeers.Remove(reply.From)
-			// Add all peers into the pullReplies.
-			for _, peer := range reply.ViewList {
-				// If the pushed peer is valid, then add to pullReplies.
-				if peer.ValidateAddr() == nil {
-					membershipController.pullReplies.Add(peer)
-				}
+	if !ok {
+		return nil
+	}
+	// Check if we actually asked for this pull reply.
+	if membershipController.pullPeers.IsMember(reply.From) {
+		membershipController.pullPeers.Remove(reply.From)
+		// Add all peers into the pullReplies.
+		for _, peer := range reply.ViewList {
+			// If the pushed peer is valid, then add to pullReplies.
+			if peer.ValidateAddr() == nil {
+				membershipController.pullReplies.Add(peer)
 			}
 		}
 	}
@@ -624,18 +628,17 @@ func (membershipController *MembershipController) incomingPullReplyHandler(paylo
 // it receives an internal message of type MembershipCloseMSG.
 func (membershipController *MembershipController) closeHandler(payload AnyMessage) error {
 	_, ok := payload.(void)
-	if ok {
-		// Clear the input queue.
-		for len(membershipController.MsgInQueue) > 0 {
-			<-membershipController.MsgInQueue
-		}
-		// send MembershipClosedMSG to the Central controller!
-		membershipController.MsgOutQueue <- InternalMessage{Type: MembershipClosedMSG, Payload: void{}}
-		// Signal for graceful closure.
-		return &CloseError{}
+	if !ok {
+		return nil
 	}
-
-	return nil
+	// Clear the input queue.
+	for len(membershipController.MsgInQueue) > 0 {
+		<-membershipController.MsgInQueue
+	}
+	// send MembershipClosedMSG to the Central controller!
+	membershipController.MsgOutQueue <- InternalMessage{Type: MembershipClosedMSG, Payload: void{}}
+	// Signal for graceful closure.
+	return &CloseError{}
 }
 
 func (membershipController *MembershipController) controllerRoutine() {
