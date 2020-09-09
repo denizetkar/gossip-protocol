@@ -3,8 +3,10 @@
 package securecomm
 
 import (
+	"context"
 	"crypto/rsa"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -17,6 +19,7 @@ type Config struct {
 	TrustedIdentitiesPath string
 	// HostKey is the variable containing 4096-bit RSA key.
 	HostKey *rsa.PrivateKey
+	// ServerName string
 }
 
 // SecureListener is the secure communication listener.
@@ -26,18 +29,27 @@ type SecureListener struct {
 	config *Config
 }
 
-// SecureConn is the secure communication connection.
-type SecureConn struct {
-	// TODO: fill here
-	conn net.TCPConn
+// Client returns a new secure client side connection
+// using conn as the underlying transport.
+// The config cannot be nil: users must set either ServerName or
+// InsecureSkipVerify in the config.
+func Client(conn net.Conn, config *Config) *SecureConn {
+	c := &SecureConn{
+		conn:     conn,
+		config:   config,
+		isClient: true,
+	}
+	c.handshakeFn = c.clientHandshake
+	return c
 }
 
 // SecureServer returns a new secure server side connection
 // using TCPConn as the underlying transport.
 func SecureServer(conn *net.TCPConn) *SecureConn {
 	c := &SecureConn{
-		conn: *conn,
+		conn: conn,
 	}
+	c.handshakeFn = c.serverHandshake
 	return c
 }
 
@@ -51,7 +63,7 @@ func NewListener(inner *net.TCPListener, config *Config) *SecureListener {
 
 // Listen is the function for creating a secure
 // communication listener.
-func Listen(network string, laddr *net.TCPAddr, config *Config) (*SecureListener, error) {
+func Listen(network string, laddr *net.TCPAddr, config *Config) (net.Listener, error) {
 	//TODO: Check for prerequisitions
 	// Construct a TCPListener
 	ln, err := net.ListenTCP(network, laddr)
@@ -61,18 +73,101 @@ func Listen(network string, laddr *net.TCPAddr, config *Config) (*SecureListener
 	return NewListener(ln, config), nil
 }
 
+type timeoutError struct{}
+type configError struct{}
+
+func (configError) Error() string { return "no config specified" }
+
+func (timeoutError) Error() string   { return "tls: DialWithDialer timed out" }
+func (timeoutError) Timeout() bool   { return true }
+func (timeoutError) Temporary() bool { return true }
+
 // Dial is the function for creating a secure
 // communication connection.
-func Dial(network, addr string, config *Config) (*SecureConn, error) {
-	// TODO: fill here
-	return nil, nil
+func Dial(network, addr string, config *Config) (*net.Conn, error) {
+	return DialWithDialer(new(net.Dialer), network, addr, config)
 }
 
 // DialWithDialer is the function for creating a secure
 // communication connection with the given dialer.
-func DialWithDialer(dialer *net.Dialer, network, addr string, config *Config) (*SecureConn, error) {
-	// TODO: fill here
-	return nil, nil
+func DialWithDialer(dialer *net.Dialer, network, addr string, config *Config) (*net.Conn, error) {
+	return DialWithDialer(new(net.Dialer), network, addr, config)
+}
+
+func dial(ctx context.Context, netDialer *net.Dialer, network, addr string, config *Config) (*SecureConn, error) {
+	// We want the Timeout and Deadline values from dialer to cover the
+	// whole process: TCP connection and TLS handshake. This means that we
+	// also need to start our own timers now.
+	timeout := netDialer.Timeout
+	if !netDialer.Deadline.IsZero() {
+		deadlineTimeout := time.Until(netDialer.Deadline)
+		if timeout == 0 || deadlineTimeout < timeout {
+			timeout = deadlineTimeout
+		}
+	}
+
+	// hsErrCh is non-nil if we might not wait for Handshake to complete.
+	var hsErrCh chan error
+	if timeout != 0 || ctx.Done() != nil {
+		hsErrCh = make(chan error, 2)
+	}
+	if timeout != 0 {
+		timer := time.AfterFunc(timeout, func() {
+			hsErrCh <- timeoutError{}
+		})
+		defer timer.Stop()
+	}
+	rawConn, err := netDialer.DialContext(ctx, network, addr)
+	if err != nil {
+		return nil, err
+	}
+
+	colonPos := strings.LastIndex(addr, ":")
+	if colonPos == -1 {
+		colonPos = len(addr)
+	}
+	hostname := addr[:colonPos]
+	if config == nil {
+		return nil, configError{}
+		// config = defaultConfig()
+	}
+	// // If no ServerName is set, infer the ServerName
+	// // from the hostname we're connecting to.
+	// if config.ServerName == "" {
+	// 	// Make a copy to avoid polluting argument or default.
+	// 	c := config.Clone()
+	// 	c.ServerName = hostname
+	// 	config = c
+	// }
+
+	conn := Client(rawConn, config)
+	if hsErrCh == nil {
+		err = conn.Handshake()
+	} else {
+		go func() {
+			hsErrCh <- conn.Handshake()
+		}()
+
+		select {
+		case <-ctx.Done():
+			err = ctx.Err()
+		case err = <-hsErrCh:
+			if err != nil {
+				// If the error was due to the context
+				// closing, prefer the context's error, rather
+				// than some random network teardown error.
+				if e := ctx.Err(); e != nil {
+					err = e
+				}
+			}
+		}
+	}
+	if err != nil {
+		rawConn.Close()
+		return nil, err
+	}
+
+	return conn, nil
 }
 
 // Accept waits for and returns the next incoming secure connection.
@@ -104,19 +199,19 @@ func (l *SecureListener) Addr() net.Addr {
 // after a fixed time limit; see SetDeadline and SetReadDeadline.
 func (sc *SecureConn) Read(b []byte) (int, error) {
 	// TODO: fill here
-	return 0, nil
+	return sc.Read(b)
 }
 
 // Write writes data to the connection.
 func (sc *SecureConn) Write(b []byte) (int, error) {
 	// TODO: fill here
-	return 0, nil
+	return sc.Write(b)
 }
 
 // Close closes the secure connection properly.
 func (sc *SecureConn) Close() error {
 	err := sc.Close()
-	// TODO: check if done properly
+	// TODO: fill here
 	return err
 }
 
@@ -148,4 +243,13 @@ func (sc *SecureConn) SetReadDeadline(t time.Time) error {
 // After a Write has timed out, the TLS state is corrupt and all future writes will return the same error.
 func (sc *SecureConn) SetWriteDeadline(t time.Time) error {
 	return sc.conn.SetWriteDeadline(t)
+}
+
+// Clone returns a shallow clone of c. It is safe to clone a Config that is
+// being used concurrently by a TLS client or server.
+func (c *Config) Clone() *Config {
+	return &Config{
+		TrustedIdentitiesPath: c.TrustedIdentitiesPath,
+		HostKey:               c.HostKey,
+	}
 }
