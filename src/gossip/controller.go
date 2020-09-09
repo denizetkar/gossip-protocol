@@ -1,14 +1,10 @@
 package main
 
 import (
-	"crypto/rsa"
 	"crypto/securecomm"
-	"crypto/x509"
 	"datastruct/indexedmap"
 	"datastruct/set"
-	"encoding/pem"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"math"
 	mrand "math/rand"
@@ -165,7 +161,8 @@ const (
 // empty files whose names are hex encoded 'identity' of the trusted peers.
 // This folder HAS TO contain the identity of the 'bootstrapper' !!!
 func NewCentralController(
-	hostKeyPath, trustedIdentitiesPath, bootstrapper, apiAddr, p2pAddr string, cacheSize uint16, degree, maxTTL uint8,
+	trustedIdentitiesPath, hostKeyPath, pubKeyPath, bootstrapper, apiAddr, p2pAddr string,
+	cacheSize uint16, degree, maxTTL uint8,
 ) (*CentralController, error) {
 	// Check the validity of trusted identities path
 	s, err := os.Stat(trustedIdentitiesPath)
@@ -224,29 +221,12 @@ func NewCentralController(
 		apiClientsMAX:           cacheSize,
 		MsgInQueue:              make(chan InternalMessage, inQueueSize),
 	}
-	// Read and load the RSA private key.
-	priv, err := ioutil.ReadFile(hostKeyPath)
+	// Create a P2P secure config.
+	p2pConfig, err := securecomm.NewConfig(trustedIdentitiesPath, hostKeyPath, pubKeyPath)
 	if err != nil {
 		return nil, err
 	}
-	privPem, _ := pem.Decode(priv)
-	if privPem == nil || !strings.Contains(privPem.Type, "PRIVATE KEY") {
-		return nil, fmt.Errorf("RSA key is not a valid '.pem' type private key")
-	}
-	privPemBytes := privPem.Bytes
-	var parsedKey interface{}
-	if parsedKey, err = x509.ParsePKCS1PrivateKey(privPemBytes); err != nil {
-		if parsedKey, err = x509.ParsePKCS8PrivateKey(privPemBytes); err != nil {
-			return nil, fmt.Errorf("Unable to parse RSA private key")
-		}
-	}
-	privateKey, ok := parsedKey.(*rsa.PrivateKey)
-	if !ok {
-		return nil, fmt.Errorf("Unable to parse RSA private key")
-	}
-	centralController.p2pConfig = &securecomm.Config{
-		TrustedIdentitiesPath: trustedIdentitiesPath,
-		HostKey:               privateKey}
+	centralController.p2pConfig = p2pConfig
 
 	apiListener, err := NewAPIListener(apiAddr, centralController.MsgInQueue)
 	if err != nil {
