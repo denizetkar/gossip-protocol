@@ -34,17 +34,20 @@ func (km *KeyManagement) computeExtDHKey(b []byte) []byte {
 	return k.Bytes()
 }
 
+// Tries to find right nonce to have k zeros at
 func proofOfWork(k int, pre_m []byte) ([]byte, error) {
+	// Length of the hash created by scrypt
+	hash_length := 128
 	nonce := make([]byte, 64)
 	rand.Read(nonce)
 	m := append(pre_m, nonce...)
 	// https://wizardforcel.gitbooks.io/practical-cryptography-for-developers-book/content/mac-and-key-derivation/scrypt.html
 	// Memory required = 128 * N * r * p bytes
-	hash, err := scrypt.Key(m, nonce, 16384, 8, 1, 128)
+	hash, err := scrypt.Key(m, nonce, 16384, 8, 1, hash_length)
 	if err != nil {
 		return nil, err
 	}
-	for i := 0; i < k; i++ {
+	for i := hash_length - 1; i >= k; i-- {
 		if hash[i] != 0 {
 			return proofOfWork(k, pre_m)
 		}
