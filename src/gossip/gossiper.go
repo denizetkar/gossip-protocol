@@ -328,9 +328,15 @@ func (gossiper *Gossiper) announceHandler(payload AnyMessage) error {
 	if !ok {
 		return nil
 	}
-	// Make sure the gossip item is not nil. Also if gossipList doesn't
-	// have space for new gossip items, then don't even consider the item.
-	if anno.Item == nil || len(gossiper.gossipList) >= int(gossiper.cacheSize) {
+	// Make sure the gossip item is not nil.
+	if anno.Item == nil {
+		return nil
+	}
+	// Inform any client of this new gossip item if they are interested.
+	gossiper.notifyClients(anno.Item)
+	// If gossipList doesn't have space for new gossip items,
+	// then don't even consider the item.
+	if len(gossiper.gossipList) >= int(gossiper.cacheSize) {
 		return nil
 	}
 	// If the gossip item to announce is old OR if the
