@@ -104,10 +104,11 @@ func (pr *MembershipPushRequestMSGPayload) HashVal(hardness uint64) (*big.Int, e
 
 // PoWThreshold returns the 'k' value for a given bit size and repetition.
 func PoWThreshold(repetition, bits uint64) *big.Int {
+	k := new(big.Int)
 	// k = (2^bits - 1)/repetition
-	k := new(big.Int).Exp(new(big.Int).SetInt64(2), new(big.Int).SetUint64(bits), nil)
-	k = new(big.Int).Sub(k, new(big.Int).SetInt64(1))
-	k = k.Div(k, new(big.Int).SetUint64(repetition))
+	k.Exp(new(big.Int).SetInt64(2), new(big.Int).SetUint64(bits), nil).
+		Sub(k, new(big.Int).SetInt64(1)).
+		Div(k, new(big.Int).SetUint64(repetition))
 	return k
 }
 
