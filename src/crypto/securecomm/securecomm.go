@@ -4,7 +4,12 @@ package securecomm
 
 import (
 	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
+	"fmt"
+	"io/ioutil"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -31,6 +36,51 @@ type SecureListener struct {
 type SecureConn struct {
 	// TODO: fill here
 	conn net.TCPConn
+}
+
+// NewConfig is the constructor method for Config struct.
+func NewConfig(trustedIdentitiesPath, hostKeyPath, pubKeyPath string) (*Config, error) {
+	// Read and load the RSA private key.
+	priv, err := ioutil.ReadFile(hostKeyPath)
+	if err != nil {
+		return nil, err
+	}
+	privPem, _ := pem.Decode(priv)
+	if privPem == nil || !strings.Contains(privPem.Type, "PRIVATE KEY") {
+		return nil, fmt.Errorf("RSA key is not a valid '.pem' type private key")
+	}
+	privPemBytes := privPem.Bytes
+	var parsedKey interface{}
+	if parsedKey, err = x509.ParsePKCS1PrivateKey(privPemBytes); err != nil {
+		if parsedKey, err = x509.ParsePKCS8PrivateKey(privPemBytes); err != nil {
+			return nil, fmt.Errorf("Unable to parse RSA private key")
+		}
+	}
+	privateKey, ok := parsedKey.(*rsa.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("Unable to parse RSA private key")
+	}
+
+	// Read and load the RSA public key.
+	pub, err := ioutil.ReadFile(pubKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("No RSA public key found, generating temp one")
+	}
+	pubPem, _ := pem.Decode(pub)
+	if pubPem == nil || !strings.Contains(pubPem.Type, "PUBLIC KEY") {
+		return nil, fmt.Errorf("RSA key is not a valid '.pem' type public key")
+	}
+
+	if parsedKey, err = x509.ParsePKIXPublicKey(pubPem.Bytes); err != nil {
+		return nil, fmt.Errorf("Unable to parse RSA public key")
+	}
+	var pubKey *rsa.PublicKey
+	if pubKey, ok = parsedKey.(*rsa.PublicKey); !ok {
+		return nil, fmt.Errorf("Unable to parse RSA public key")
+	}
+
+	privateKey.PublicKey = *pubKey
+	return &Config{TrustedIdentitiesPath: trustedIdentitiesPath, HostKey: privateKey}, nil
 }
 
 // NewListener is the constructor function of SecureListener.
