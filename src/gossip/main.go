@@ -31,6 +31,10 @@ func newCentralControllerFromConfigFile(configPath string) (*CentralController, 
 	if err != nil {
 		return nil, err
 	}
+	pubKeyPath, err := globalConfig.GetStringValue("pubkey")
+	if err != nil {
+		return nil, err
+	}
 	// Check if the configurations for gossip module exist
 	gossipConfig, ok := config["gossip"]
 	if !ok {
@@ -73,7 +77,7 @@ func newCentralControllerFromConfigFile(configPath string) (*CentralController, 
 	}
 
 	centralController, err := NewCentralController(
-		hostKeyPath, trustedIdentitiesPath, bootstrapper, apiAddr, p2pAddr, cacheSize, degree, maxTTL,
+		trustedIdentitiesPath, hostKeyPath, pubKeyPath, bootstrapper, apiAddr, p2pAddr, cacheSize, degree, maxTTL,
 	)
 	if err != nil {
 		return nil, err
