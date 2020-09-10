@@ -1,10 +1,10 @@
-package main
+package core
 
 import (
-	"crypto/securecomm"
-	"datastruct/indexedmap"
-	"datastruct/set"
 	"fmt"
+	"gossip/src/crypto/securecomm"
+	"gossip/src/datastruct/indexedmap"
+	"gossip/src/datastruct/set"
 	"log"
 	"math"
 	mrand "math/rand"

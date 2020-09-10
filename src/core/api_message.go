@@ -1,4 +1,4 @@
-package main
+package core
 
 // APIListenerCrashedMSGPayload is the payload type of an InternalMessage
 // with type APIListenerCrashedMSG.

@@ -1,4 +1,4 @@
-package main
+package core
 
 // GossipItemDataType is the 16-bit unsigned integer
 // that specifies the 'data type' of the gossip item as
