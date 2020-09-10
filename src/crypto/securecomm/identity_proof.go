@@ -1,9 +1,18 @@
 package securecomm
 
 import (
+	"errors"
 	"github.com/monnand/dhkx"
 	"golang.org/x/crypto/scrypt"
 	"math/rand"
+)
+
+const (
+	SCRYPT_N           = 16384
+	SCRYPT_r           = 8
+	SCRYPT_p           = 1
+	SCRYPT_HASH_LENGTH = 128
+	SCRYPT_NONCE_SIZE  = 64
 )
 
 type KeyManagement struct {
@@ -24,33 +33,50 @@ func (km *KeyManagement) generateOwnDHKeys() {
 	km.dh_pub = km.dh_priv.Bytes()
 }
 
-// Compute received byte slice to a private DH Key
-func (km *KeyManagement) computeExtDHKey(b []byte) []byte {
+// Combine external public key and the local private key to compute the final key
+func (km *KeyManagement) computeFinalKey(b []byte) ([]byte, error) {
 	// Recover public key
 	pubKey := dhkx.NewPublicKey(b)
 
 	// Compute the key
-	k, _ := km.dh_group.ComputeKey(pubKey, km.dh_priv)
-	return k.Bytes()
+	k, err := km.dh_group.ComputeKey(pubKey, km.dh_priv)
+	return k.Bytes(), err
+}
+func (km *KeyManagement) returnNonceSize() int {
+	return SCRYPT_NONCE_SIZE
 }
 
 // Tries to find right nonce to have k zeros at
 func proofOfWork(k int, pre_m []byte) ([]byte, error) {
 	// Length of the hash created by scrypt
-	hash_length := 128
-	nonce := make([]byte, 64)
+	nonce := make([]byte, SCRYPT_NONCE_SIZE)
 	rand.Read(nonce)
 	m := append(pre_m, nonce...)
 	// https://wizardforcel.gitbooks.io/practical-cryptography-for-developers-book/content/mac-and-key-derivation/scrypt.html
 	// Memory required = 128 * N * r * p bytes
-	hash, err := scrypt.Key(m, nonce, 16384, 8, 1, hash_length)
+	hash, err := scrypt.Key(m, nonce, SCRYPT_N, SCRYPT_r, SCRYPT_p, SCRYPT_HASH_LENGTH)
 	if err != nil {
 		return nil, err
 	}
-	for i := hash_length - 1; i >= k; i-- {
+	for i := SCRYPT_HASH_LENGTH - 1; i >= k; i-- {
 		if hash[i] != 0 {
 			return proofOfWork(k, pre_m)
 		}
 	}
 	return m, nil
+}
+
+// Checks a message for validity
+func checkProofOfWorkValidity(k int, m []byte) error {
+	_, _, nonce := splitM(m, SCRYPT_NONCE_SIZE)
+	hash, err := scrypt.Key(m, nonce, SCRYPT_N, SCRYPT_r, SCRYPT_p, SCRYPT_HASH_LENGTH)
+	if err != nil {
+		return err
+	}
+	for i := SCRYPT_HASH_LENGTH - 1; i >= k; i-- {
+		if hash[i] != 0 {
+			return errors.New("ProofOfWork is not valid")
+		}
+	}
+	return nil
 }

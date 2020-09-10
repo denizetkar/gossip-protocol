@@ -6,8 +6,10 @@ import (
 	"context"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/gob"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
 	"strings"
@@ -23,7 +25,8 @@ type Config struct {
 	TrustedIdentitiesPath string
 	// HostKey is the variable containing 4096-bit RSA key.
 	HostKey *rsa.PrivateKey
-	// ServerName string
+	// Number of zeros necessary in Proof Of Work hash
+	k int
 }
 
 // SecureListener is the secure communication listener.
@@ -31,6 +34,12 @@ type SecureListener struct {
 	// TODO: fill here
 	ln     net.TCPListener
 	config *Config
+}
+
+var emptyConfig Config
+
+func defaultConfig() *Config {
+	return &emptyConfig
 }
 
 // Client returns a new secure client side connection
@@ -42,6 +51,8 @@ func Client(conn net.Conn, config *Config) *SecureConn {
 		conn:     conn,
 		config:   config,
 		isClient: true,
+		input:    gob.NewDecoder(io.LimitReader(conn, 8192)),
+		output:   gob.NewEncoder(io.Writer(conn)),
 	}
 	c.handshakeFn = c.clientHandshake
 	return c
@@ -51,7 +62,10 @@ func Client(conn net.Conn, config *Config) *SecureConn {
 // using TCPConn as the underlying transport.
 func SecureServer(conn *net.TCPConn) *SecureConn {
 	c := &SecureConn{
-		conn: conn,
+		conn:     conn,
+		isClient: false,
+		input:    gob.NewDecoder(io.LimitReader(conn, 8192)),
+		output:   gob.NewEncoder(io.Writer(conn)),
 	}
 	c.handshakeFn = c.serverHandshake
 	return c
@@ -99,7 +113,10 @@ func NewConfig(trustedIdentitiesPath, hostKeyPath, pubKeyPath string) (*Config, 
 	}
 
 	privateKey.PublicKey = *pubKey
-	return &Config{TrustedIdentitiesPath: trustedIdentitiesPath, HostKey: privateKey}, nil
+
+	// Hard code k for proof of work
+	k := 12
+	return &Config{TrustedIdentitiesPath: trustedIdentitiesPath, HostKey: privateKey, k: k}, nil
 }
 
 // NewListener is the constructor function of SecureListener.
@@ -175,19 +192,9 @@ func dial(ctx context.Context, netDialer *net.Dialer, network, addr string, conf
 	if colonPos == -1 {
 		colonPos = len(addr)
 	}
-	hostname := addr[:colonPos]
 	if config == nil {
-		return nil, configError{}
-		// config = defaultConfig()
+		config = defaultConfig()
 	}
-	// // If no ServerName is set, infer the ServerName
-	// // from the hostname we're connecting to.
-	// if config.ServerName == "" {
-	// 	// Make a copy to avoid polluting argument or default.
-	// 	c := config.Clone()
-	// 	c.ServerName = hostname
-	// 	config = c
-	// }
 
 	conn := Client(rawConn, config)
 	if hsErrCh == nil {
