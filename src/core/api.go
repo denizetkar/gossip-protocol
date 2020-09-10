@@ -1,7 +1,7 @@
-package main
+package core
 
 import (
-	"datastruct/set"
+	"gossip/src/datastruct/set"
 	"net"
 	"sync"
 )

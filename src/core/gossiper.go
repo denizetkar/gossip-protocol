@@ -1,10 +1,10 @@
-package main
+package core
 
 import (
-	"datastruct/set"
 	"fmt"
+	"gossip/src/datastruct/set"
+	"gossip/src/mathutils"
 	"math"
-	"mathutils"
 	"time"
 )
 

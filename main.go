@@ -3,9 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"gossip/src/core"
+	"gossip/src/parser/ini"
 	"log"
 	"os"
-	"parser/ini"
 	"path/filepath"
 )
 
@@ -16,7 +17,7 @@ func init() {
 	gossipWorkspacePath, _ = os.Getwd()
 }
 
-func newCentralControllerFromConfigFile(configPath string) (*CentralController, error) {
+func newCentralControllerFromConfigFile(configPath string) (*core.CentralController, error) {
 	config, err := ini.ReadConfigFile(configPath)
 	if err != nil {
 		return nil, err
@@ -76,7 +77,7 @@ func newCentralControllerFromConfigFile(configPath string) (*CentralController, 
 		return nil, err
 	}
 
-	centralController, err := NewCentralController(
+	centralController, err := core.NewCentralController(
 		trustedIdentitiesPath, hostKeyPath, pubKeyPath, bootstrapper, apiAddr, p2pAddr, cacheSize, degree, maxTTL,
 	)
 	if err != nil {
