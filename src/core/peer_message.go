@@ -1,4 +1,4 @@
-package main
+package core
 
 // P2PListenerCrashedMSGPayload is the payload type of an InternalMessage
 // with type P2PListenerCrashedMSG.

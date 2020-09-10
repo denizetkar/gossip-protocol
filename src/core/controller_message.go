@@ -1,4 +1,4 @@
-package main
+package core
 
 // OutgoingP2PCreatedMSGPayload is the payload type of an InternalMessage
 // with type OutgoingP2PCreatedMSG.
