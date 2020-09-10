@@ -1,4 +1,4 @@
-package main
+package core
 
 // RandomPeerListRequestMSGPayload is the payload type of an InternalMessage
 // with type RandomPeerListRequestMSG.

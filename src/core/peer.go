@@ -1,7 +1,7 @@
-package main
+package core
 
 import (
-	"crypto/securecomm"
+	"gossip/src/crypto/securecomm"
 	"net"
 	"sync"
 )

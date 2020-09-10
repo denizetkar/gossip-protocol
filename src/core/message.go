@@ -1,4 +1,4 @@
-package main
+package core
 
 // InternalMessageType is a 16-bit unsigned integer specifying type
 // of an internal message.

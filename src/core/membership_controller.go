@@ -1,15 +1,15 @@
-package main
+package core
 
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/cipher/ecb"
 	"crypto/rand"
 	"crypto/sha256"
-	"datastruct/indexedmap"
-	"datastruct/indexedset"
-	"datastruct/set"
 	"fmt"
+	"gossip/src/crypto/cipher/ecb"
+	"gossip/src/datastruct/indexedmap"
+	"gossip/src/datastruct/indexedset"
+	"gossip/src/datastruct/set"
 	"io"
 	"math"
 	"math/big"

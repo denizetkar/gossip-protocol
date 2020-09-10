@@ -1,4 +1,4 @@
 {
-    "go.inferGopath": true,
+    "go.inferGopath": false,
     "files.eol": "\n"
 }
