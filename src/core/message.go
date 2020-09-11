@@ -73,7 +73,7 @@ const (
 	// the Gossiper to entirely remove the given API client.
 	GossipUnnofityMSG
 	// GossipNotificationMSG is a command from the Gossiper to the
-	// the Central controller to notify the corresponding API client upon
+	// Central controller to notify the corresponding API client upon
 	// receiving a gossip of given data type.
 	GossipNotificationMSG
 	// GossipValidationMSG is a notification from the Central controller to
@@ -129,6 +129,9 @@ const (
 	// APIListenerClosedMSG is a notification from the api listener to
 	// the Central controller for closing gracefully as requested.
 	APIListenerClosedMSG
+	// APIEndpointCreatedMSG is a notification from the api listener to the
+	// Central controller that it created an api endpoint.
+	APIEndpointCreatedMSG
 )
 
 const (
@@ -147,6 +150,9 @@ const (
 	// P2PListenerClosedMSG is a notification from the p2p listener to
 	// the Central controller for closing gracefully as requested.
 	P2PListenerClosedMSG
+	// IncomingP2PCreatedMSG is a notification from the p2p listener to the
+	// Central controller that it created an incoming p2p endpoint.
+	IncomingP2PCreatedMSG
 )
 
 const (
