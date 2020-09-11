@@ -3,6 +3,7 @@ package securecomm
 import (
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/binary"
 	"encoding/gob"
 	"encoding/hex"
 	"net"
@@ -125,4 +126,9 @@ func (c *SecureConn) Handshake() error {
 	handshakeErr := c.handshakeFn()
 
 	return handshakeErr
+}
+
+func toByteArray(i int64) (arr [8]byte) {
+	binary.BigEndian.PutUint64(arr[0:8], uint64(i))
+	return
 }
