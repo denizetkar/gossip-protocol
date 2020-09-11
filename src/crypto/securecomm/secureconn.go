@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,15 +19,17 @@ type SecureConn struct {
 	handshakeFn    func() error // (*SecureConn).clientHandshake or serverHandshake
 	handshakeMutex sync.Mutex
 
-	// handshakeStatus is 1 if the connection is currently transferring
-	// application data (i.e. is not currently processing a handshake).
+	// handShakeCompleted is 1 if a handshake was established
 	// This field is only to be accessed with sync/atomic.
-	handshakeStatus uint32
-	input           *gob.Decoder
-	output          *gob.Encoder
+	handShakeCompleted int32
+	input              *gob.Decoder
+	output             *gob.Encoder
 
 	// Master Key which encrypts and decrypts communication between two peers
 	masterKey []byte
+
+	in  sync.Mutex
+	out sync.Mutex
 }
 
 // Message that is seriallized and should be send or received
@@ -96,6 +99,8 @@ func (messageError) Error() string { return "securecomm: Message format is incor
 
 // Write a Message directly, should be used only internally
 func (c *SecureConn) write(data *Message) error {
+	c.out.Lock()
+	defer c.out.Unlock()
 	if !(data.Data != nil || !data.Handshake.isValid()) {
 		return messageError{}
 	}
@@ -105,7 +110,8 @@ func (c *SecureConn) write(data *Message) error {
 
 // Read a Message directly, should be used only internally
 func (c *SecureConn) read() (data *Message, err error) {
-
+	c.in.Lock()
+	defer c.in.Unlock()
 	err = c.input.Decode(data)
 	return data, err
 }
@@ -122,6 +128,9 @@ func (c *SecureConn) Handshake() error {
 	c.handshakeMutex.Lock()
 	defer c.handshakeMutex.Unlock()
 
+	if atomic.LoadInt32(&c.handShakeCompleted) == 1 {
+		return nil
+	}
 	handshakeErr := c.handshakeFn()
 
 	return handshakeErr
