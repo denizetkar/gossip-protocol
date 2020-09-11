@@ -15,6 +15,7 @@ import (
 	"io/ioutil"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -35,9 +36,10 @@ type Config struct {
 
 // SecureListener is the secure communication listener.
 type SecureListener struct {
-	// TODO: fill here
 	ln     net.TCPListener
 	config *Config
+	quit   chan interface{}
+	wg     sync.WaitGroup
 }
 
 // Client returns a new secure client side connection
@@ -119,16 +121,17 @@ func NewConfig(trustedIdentitiesPath, hostKeyPath, pubKeyPath string) (*Config, 
 
 // NewListener is the constructor function of SecureListener.
 func NewListener(inner *net.TCPListener, config *Config) *SecureListener {
-	return &SecureListener{
+	sl := &SecureListener{
 		ln:     *inner,
 		config: config,
+		quit:   make(chan interface{}),
 	}
+	return sl
 }
 
 // Listen is the function for creating a secure
 // communication listener.
 func Listen(network string, laddr *net.TCPAddr, config *Config) (net.Listener, error) {
-	//TODO: Check for prerequisitions
 	// Constructs a TCPListener
 	ln, err := net.ListenTCP(network, laddr)
 	if err != nil {
@@ -230,7 +233,12 @@ func dial(ctx context.Context, netDialer *net.Dialer, network, addr string, conf
 func (l *SecureListener) Accept() (net.Conn, error) {
 	c, err := l.ln.AcceptTCP()
 	if err != nil {
-		return nil, err
+		select {
+		case <-l.quit:
+			return nil, nil
+		default:
+			return nil, err
+		}
 	}
 	return SecureServer(c, l.config), nil
 }
@@ -238,8 +246,10 @@ func (l *SecureListener) Accept() (net.Conn, error) {
 // Close closes the listener.
 // Any blocked Accept operations will be unblocked and return errors.
 func (l *SecureListener) Close() error {
-	//TODO: Shutdown gracefully
+	//https://eli.thegreenplace.net/2020/graceful-shutdown-of-a-tcp-server-in-go/
+	close(l.quit)
 	err := l.ln.Close()
+	l.wg.Wait()
 	return err
 }
 
