@@ -4,6 +4,7 @@ package securecomm
 
 import (
 	"context"
+	"crypto/aes"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/gob"
@@ -238,7 +239,7 @@ func (l *SecureListener) Accept() (net.Conn, error) {
 // Any blocked Accept operations will be unblocked and return errors.
 func (l *SecureListener) Close() error {
 	//TODO: Shutdown gracefully
-	err := l.Close()
+	err := l.ln.Close()
 	return err
 }
 
@@ -252,19 +253,52 @@ func (l *SecureListener) Addr() net.Addr {
 // Read can be made to time out and return a net.Error with Timeout() == true
 // after a fixed time limit; see SetDeadline and SetReadDeadline.
 func (sc *SecureConn) Read(b []byte) (int, error) {
-	// TODO: fill here
-	return sc.Read(b)
+	if err := sc.Handshake(); err != nil {
+		return 0, err
+	}
+	if len(b) == 0 {
+		// Put this after Handshake, in case people were calling
+		// Read(nil) for the side effect of the Handshake.
+		return 0, nil
+	}
+	encM, err := sc.read()
+	if err != nil {
+		return 0, err
+	}
+	cipher, err := aes.NewCipher(sc.masterKey)
+	if err != nil {
+		return 0, err
+	}
+	data := make([]byte, len(encM.Data))
+	cipher.Decrypt(data, encM.Data)
+	copy(b, data)
+
+	return len(encM.Data), nil
 }
 
 // Write writes data to the connection.
 func (sc *SecureConn) Write(b []byte) (int, error) {
-	// TODO: fill here
-	return sc.Write(b)
+	if err := sc.Handshake(); err != nil {
+		return 0, err
+	}
+	cipher, err := aes.NewCipher(sc.masterKey)
+	if err != nil {
+		return -1, err
+	}
+	encB := make([]byte, len(b))
+	cipher.Encrypt(encB, b)
+	m := &Message{
+		Data: encB}
+	err = sc.write(m)
+	if err != nil {
+		return 0, err
+	}
+	return len(b), nil
 }
 
 // Close closes the secure connection properly.
 func (sc *SecureConn) Close() error {
-	err := sc.Close()
+	err := sc.conn.Close()
 	// TODO: fill here
 	return err
 }

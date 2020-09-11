@@ -44,6 +44,7 @@ func (hs *serverHandshakeState) handshake() error {
 	if err := hs.establishKey(); err != nil {
 		return err
 	}
+	hs.c.masterKey = hs.masterSecret
 	return nil
 }
 

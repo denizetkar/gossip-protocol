@@ -24,6 +24,9 @@ type SecureConn struct {
 	handshakeStatus uint32
 	input           *gob.Decoder
 	output          *gob.Encoder
+
+	// Master Key which encrypts and decrypts communication between two peers
+	masterKey []byte
 }
 
 // Message that is seriallized and should be send or received
