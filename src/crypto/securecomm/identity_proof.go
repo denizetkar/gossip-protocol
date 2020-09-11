@@ -2,23 +2,26 @@ package securecomm
 
 import (
 	"errors"
+	"math/rand"
+
 	"github.com/monnand/dhkx"
 	"golang.org/x/crypto/scrypt"
-	"math/rand"
 )
 
+// Parameters to be used in the scrypt command
 const (
-	SCRYPT_N           = 16384
-	SCRYPT_r           = 8
-	SCRYPT_p           = 1
-	SCRYPT_HASH_LENGTH = 128
-	SCRYPT_NONCE_SIZE  = 64
+	ScryptN          = 16384
+	ScryptR          = 8
+	ScryptP          = 1
+	ScryptHashlength = 128
+	ScryptNonceSize  = 64
 )
 
+// KeyManagement manages own keys related to DH exchange
 type KeyManagement struct {
-	dh_group *dhkx.DHGroup
-	dh_priv  *dhkx.DHKey
-	dh_pub   []byte
+	dhGroup *dhkx.DHGroup
+	dhPriv  *dhkx.DHKey
+	dhPub   []byte
 }
 
 func emptyKM() *KeyManagement {
@@ -27,10 +30,10 @@ func emptyKM() *KeyManagement {
 
 func (km *KeyManagement) generateOwnDHKeys() {
 	// Use default Group
-	km.dh_group, _ = dhkx.GetGroup(0)
+	km.dhGroup, _ = dhkx.GetGroup(0)
 	// Use default random generator for private key generation
-	km.dh_priv, _ = km.dh_group.GeneratePrivateKey(nil)
-	km.dh_pub = km.dh_priv.Bytes()
+	km.dhPriv, _ = km.dhGroup.GeneratePrivateKey(nil)
+	km.dhPub = km.dhPriv.Bytes()
 }
 
 // Combine external public key and the local private key to compute the final key
@@ -39,41 +42,40 @@ func (km *KeyManagement) computeFinalKey(b []byte) ([]byte, error) {
 	pubKey := dhkx.NewPublicKey(b)
 
 	// Compute the key
-	k, err := km.dh_group.ComputeKey(pubKey, km.dh_priv)
+	k, err := km.dhGroup.ComputeKey(pubKey, km.dhPriv)
 	return k.Bytes(), err
 }
 func (km *KeyManagement) returnNonceSize() int {
-	return SCRYPT_NONCE_SIZE
+	return ScryptNonceSize
 }
 
 // Tries to find right nonce to have k zeros at
-func proofOfWork(k int, pre_m []byte) ([]byte, error) {
+func proofOfWork(k int, preM []byte) ([]byte, error) {
 	// Length of the hash created by scrypt
-	nonce := make([]byte, SCRYPT_NONCE_SIZE)
+	nonce := make([]byte, ScryptNonceSize)
 	rand.Read(nonce)
-	m := append(pre_m, nonce...)
+	m := append(preM, nonce...)
 	// https://wizardforcel.gitbooks.io/practical-cryptography-for-developers-book/content/mac-and-key-derivation/scrypt.html
 	// Memory required = 128 * N * r * p bytes
-	hash, err := scrypt.Key(m, nonce, SCRYPT_N, SCRYPT_r, SCRYPT_p, SCRYPT_HASH_LENGTH)
+	hash, err := scrypt.Key(m, nonce, ScryptN, ScryptR, ScryptP, ScryptHashlength)
 	if err != nil {
 		return nil, err
 	}
-	for i := SCRYPT_HASH_LENGTH - 1; i >= k; i-- {
+	for i := ScryptHashlength - 1; i >= k; i-- {
 		if hash[i] != 0 {
-			return proofOfWork(k, pre_m)
+			return proofOfWork(k, preM)
 		}
 	}
-	return m, nil
+	return nonce, nil
 }
 
-// Checks a message for validity
-func checkProofOfWorkValidity(k int, m []byte) error {
-	_, _, nonce := splitM(m, SCRYPT_NONCE_SIZE)
-	hash, err := scrypt.Key(m, nonce, SCRYPT_N, SCRYPT_r, SCRYPT_p, SCRYPT_HASH_LENGTH)
+// checkProofOfWorkValidity expects k, and the handshake, where the nonce is seperated and the signatur is not included and checks the handshake for validity of the proof of work
+func checkProofOfWorkValidity(k int, m []byte, nonce []byte) error {
+	hash, err := scrypt.Key(m, nonce, ScryptN, ScryptR, ScryptP, ScryptHashlength)
 	if err != nil {
 		return err
 	}
-	for i := SCRYPT_HASH_LENGTH - 1; i >= k; i-- {
+	for i := ScryptHashlength - 1; i >= ScryptHashlength-k; i-- {
 		if hash[i] != 0 {
 			return errors.New("ProofOfWork is not valid")
 		}

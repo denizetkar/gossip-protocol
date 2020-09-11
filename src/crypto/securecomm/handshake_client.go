@@ -4,14 +4,15 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/x509"
-	"encoding/hex"
-	"golang.org/x/crypto/sha3"
+	"errors"
 	"time"
+
+	"golang.org/x/crypto/sha3"
 )
 
 func (c *SecureConn) clientHandshake() (err error) {
 	if c.config == nil {
-		c.config = defaultConfig()
+		return errors.New("Config is nil")
 	}
 
 	hs := &clientHandshakeState{
@@ -30,8 +31,8 @@ func (c *SecureConn) clientHandshake() (err error) {
 type clientHandshakeState struct {
 	c            *SecureConn
 	km           *KeyManagement
-	m_client     []byte
-	m_server     []byte
+	mClient      Handshake
+	mServer      Handshake
 	masterSecret []byte
 }
 
@@ -47,51 +48,47 @@ func (hs *clientHandshakeState) handshake() error {
 
 func (hs *clientHandshakeState) doFullHandshake() error {
 	c := hs.c
-	priv_key := c.config.HostKey
+	privKey := c.config.HostKey
 
-	// Seriallize Public Key
-	rsa_pub := x509.MarshalPKCS1PublicKey(&priv_key.PublicKey)
-	pre_m := append(hs.km.dh_pub, rsa_pub...)
+	handshake := Handshake{
+		DHPub:  hs.km.dhPub,
+		RSAPub: hs.c.config.HostKey.PublicKey,
+		Time:   time.Now().UTC(),
+		Addr:   c.LocalAddr()}
 
-	// Seriallize Time
-	time_bytes := toByteArray(time.Now().UTC().Unix())
-	pre_m = append(pre_m, time_bytes[:]...)
-
-	// Seriallize IP adress
-	addr_bytes, _ := hex.DecodeString(c.LocalAddr().String())
-	pre_m = append(pre_m, addr_bytes...)
-
-	m, err := proofOfWork(c.config.k, pre_m)
+	nonce, err := proofOfWork(c.config.k, handshake.concatIdentifiers())
 	if err != nil {
 		return err
 	}
-	sha_m := sha3.Sum256(m)
-	s, err := priv_key.Sign(rand.Reader, sha_m[:], crypto.SHA3_256)
+	hs.mClient.Nonce = nonce
+	m := append(handshake.concatIdentifiers(), nonce...)
+	shaM := sha3.Sum256(m)
+	s, err := privKey.Sign(rand.Reader, shaM[:], crypto.SHA3_256)
 	if err != nil {
 		return err
 	}
-	hs.m_client = append(m, s...)
+	hs.mClient.RSASig = s
 	c.write(
-		&message{
-			header_type: HANDSHAKE_MSG,
-			isClient:    true,
-			data:        hs.m_client})
-	handshake_server, err := c.read()
+		&Message{
+			IsClient:  true,
+			Data:      nil,
+			Handshake: handshake})
+	handshakeServer, err := c.read()
 	if err != nil {
 		return err
 	}
-	if handshake_server.header_type != HANDSHAKE_MSG || handshake_server.isClient == true {
+	if handshakeServer.Data != nil || handshakeServer.IsClient == true || handshakeServer.Handshake.isEmpty() {
 		return messageError{}
 	}
-	hs.m_server = handshake_server.data
-	err = checkProofOfWorkValidity(hs.c.config.k, hs.m_server)
+	hs.mServer = handshakeServer.Handshake
+	err = checkProofOfWorkValidity(hs.c.config.k, hs.mServer.concatIdentifiers(), hs.mServer.Nonce)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 func (hs *clientHandshakeState) establishKey() (err error) {
-	dhe_server, _, _ := splitM(hs.m_server, hs.km.returnNonceSize())
-	hs.masterSecret, err = hs.km.computeFinalKey(dhe_server)
+	serverRSAPub := x509.MarshalPKCS1PublicKey(&hs.mServer.RSAPub)
+	hs.masterSecret, err = hs.km.computeFinalKey(serverRSAPub)
 	return err
 }

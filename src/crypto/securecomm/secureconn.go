@@ -1,14 +1,18 @@
 package securecomm
 
 import (
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/gob"
+	"encoding/hex"
 	"net"
 	"sync"
+	"time"
 )
 
 // SecureConn is the secure communication connection.
 type SecureConn struct {
-	conn           net.Conn
+	conn           *net.TCPConn
 	config         *Config
 	isClient       bool
 	handshakeFn    func() error // (*SecureConn).clientHandshake or serverHandshake
@@ -22,41 +26,69 @@ type SecureConn struct {
 	output          *gob.Encoder
 }
 
-const (
-	HANDSHAKE_MSG = "handshake_msg"
-	DATA_MSG      = "data_msg"
-)
-
-// The message that is seriallized and should be send or received
-type message struct {
-	// Either HANDSHAKE_MSG or DATA_MSG
-	header_type string
-	isClient    bool
-	data        []byte
+// Message that is seriallized and should be send or received
+// Includes either Data or Handshake
+type Message struct {
+	IsClient  bool
+	Data      []byte
+	Handshake Handshake
 }
+
+// Handshake that can be included in a message
+type Handshake struct {
+	DHPub  []byte
+	RSAPub rsa.PublicKey
+	Time   time.Time
+	Addr   net.Addr
+	Nonce  []byte
+	RSASig []byte
+}
+
+func (h *Handshake) isEmpty() bool {
+	return h.DHPub == nil && h.RSAPub.Size() == 0 && h.Time.IsZero() && h.Addr.String() == "" && h.Nonce == nil && h.RSASig == nil
+}
+
+// concatIdentifiers returns a byte slice of every identity-realted field in the handshake (DHPub, RSAPub, Time, Addr)
+func (h *Handshake) concatIdentifiers() (result []byte) {
+	// Seriallize Public Key
+	rsaPub := x509.MarshalPKCS1PublicKey(&h.RSAPub)
+	result = append(h.DHPub, rsaPub...)
+
+	// Seriallize Time
+	timeBytes := toByteArray(h.Time.Unix())
+	result = append(result, timeBytes[:]...)
+
+	// Seriallize IP adress
+	addrBytes, _ := hex.DecodeString(h.Addr.String())
+	result = append(result, addrBytes...)
+	return result
+}
+
 type messageError struct{}
 
 func (messageError) Error() string { return "securecomm: Message format is incorrect" }
-func (c *SecureConn) write(data *message) error {
-	if data.header_type != HANDSHAKE_MSG || data.header_type != DATA_MSG {
+func (c *SecureConn) write(data *Message) error {
+	if !(data.Data != nil || !data.Handshake.isEmpty()) {
 		return messageError{}
 	}
 	err := c.output.Encode(data)
 	return err
 }
-func (c *SecureConn) read() (data *message, err error) {
+func (c *SecureConn) read() (data *Message, err error) {
 
 	err = c.input.Decode(data)
 	return data, err
 }
 
-// Extract components of handshake message
-func splitM(m []byte, nonce_size int) (dhe []byte, rsa []byte, nonce []byte) {
-	dhe = m[:len(m)-512-nonce_size-1]
-	rsa = m[len(m)-512-nonce_size : len(m)-nonce_size-1]
-	nonce = m[len(m)-nonce_size:]
-	return dhe, rsa, nonce
-}
+// // Extract components of handshake message
+// func splitM(m []byte, nonceSize int) (dhe []byte, rsa []byte, nonce []byte, time []byte, addr []byte rsaSig []byte) {
+// 	dhe = m[:128]
+// 	rsa = m[128 : 128+512]
+// 	nonce = m[len(m)-512-nonceSize : len(m)-512]
+
+// 	rsaSig = m[len(m)-512:]
+// 	return dhe, rsa, nonce, time, addr, rsaSig
+// }
 
 // Handshake runs the client or server handshake
 // protocol if it has not yet been run.
