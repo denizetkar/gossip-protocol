@@ -3,6 +3,7 @@ package securecomm
 import (
 	"crypto"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"errors"
 	"time"
@@ -50,6 +51,7 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 	c := hs.c
 	privKey := c.config.HostKey
 
+	// Write handshake to server
 	handshake := Handshake{
 		DHPub:  hs.km.dhPub,
 		RSAPub: hs.c.config.HostKey.PublicKey,
@@ -73,6 +75,8 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 			IsClient:  true,
 			Data:      nil,
 			Handshake: handshake})
+
+	// Read and verify server handshake
 	handshakeServer, err := c.read()
 	if err != nil {
 		return err
@@ -82,6 +86,14 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 	}
 	hs.mServer = handshakeServer.Handshake
 	err = checkProofOfWorkValidity(hs.c.config.k, hs.mServer.concatIdentifiers(), hs.mServer.Nonce)
+	if err != nil {
+		return err
+	}
+	err = checkIdentity(&hs.mServer.RSAPub, hs.c.config.TrustedIdentitiesPath)
+	if err != nil {
+		return err
+	}
+	err = rsa.VerifyPKCS1v15(&hs.mServer.RSAPub, crypto.SHA3_256, hs.mServer.concatIdentifiersInclNonce(), hs.mServer.RSASig)
 	if err != nil {
 		return err
 	}

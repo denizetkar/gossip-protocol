@@ -3,6 +3,7 @@ package securecomm
 import (
 	"crypto"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"errors"
 	"time"
@@ -50,6 +51,29 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 	c := hs.c
 	privKey := c.config.HostKey
 
+	// Read and verify client handshake
+	handshakeClient, err := c.read()
+	if err != nil {
+		return err
+	}
+	if handshakeClient.Data != nil || handshakeClient.IsClient == true || handshakeClient.Handshake.isEmpty() {
+		return messageError{}
+	}
+	hs.mClient = handshakeClient.Handshake
+	err = checkProofOfWorkValidity(hs.c.config.k, hs.mClient.concatIdentifiers(), hs.mClient.Nonce)
+	if err != nil {
+		return err
+	}
+	err = checkIdentity(&hs.mClient.RSAPub, hs.c.config.TrustedIdentitiesPath)
+	if err != nil {
+		return err
+	}
+	err = rsa.VerifyPKCS1v15(&hs.mClient.RSAPub, crypto.SHA3_256, hs.mClient.concatIdentifiersInclNonce(), hs.mClient.RSASig)
+	if err != nil {
+		return err
+	}
+
+	// Write handshake to Client
 	handshake := Handshake{
 		DHPub:  hs.km.dhPub,
 		RSAPub: hs.c.config.HostKey.PublicKey,
@@ -68,20 +92,12 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 		return err
 	}
 	hs.mServer.RSASig = s
+
 	c.write(
 		&Message{
 			IsClient:  false,
 			Data:      nil,
 			Handshake: handshake})
-	handshakeClient, err := c.read()
-	if err != nil {
-		return err
-	}
-	if handshakeClient.Data != nil || handshakeClient.IsClient == true || handshakeClient.Handshake.isEmpty() {
-		return messageError{}
-	}
-	hs.mClient = handshakeClient.Handshake
-	err = checkProofOfWorkValidity(hs.c.config.k, hs.mClient.concatIdentifiers(), hs.mClient.Nonce)
 	if err != nil {
 		return err
 	}

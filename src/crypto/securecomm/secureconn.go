@@ -64,6 +64,23 @@ func (h *Handshake) concatIdentifiers() (result []byte) {
 	return result
 }
 
+// concatIdentifiers returns a byte slice of every field in the handshake except RSASig(DHPub, RSAPub, Time, Addr, Nonce)
+func (h *Handshake) concatIdentifiersInclNonce() (result []byte) {
+	// Seriallize Public Key
+	rsaPub := x509.MarshalPKCS1PublicKey(&h.RSAPub)
+	result = append(h.DHPub, rsaPub...)
+
+	// Seriallize Time
+	timeBytes := toByteArray(h.Time.Unix())
+	result = append(result, timeBytes[:]...)
+
+	// Seriallize IP adress
+	addrBytes, _ := hex.DecodeString(h.Addr.String())
+	result = append(result, addrBytes...)
+	result = append(result, h.Nonce...)
+	return result
+}
+
 type messageError struct{}
 
 func (messageError) Error() string { return "securecomm: Message format is incorrect" }
