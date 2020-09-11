@@ -2,6 +2,7 @@ package securecomm
 
 import (
 	"errors"
+	"math/big"
 	"math/rand"
 
 	"github.com/monnand/dhkx"
@@ -15,6 +16,7 @@ const (
 	ScryptP          = 1
 	ScryptHashlength = 128
 	ScryptNonceSize  = 64
+	ScryptRepetion   = 200
 )
 
 // KeyManagement manages own keys related to DH exchange
@@ -81,4 +83,37 @@ func checkProofOfWorkValidity(k int, m []byte, nonce []byte) error {
 		}
 	}
 	return nil
+}
+
+// PoWThreshold returns the 'k' value for a given bit size and repetition.
+func PoWThreshold(repetition, bits uint64) *big.Int {
+	k := new(big.Int)
+	// k = (2^bits - 1)/repetition
+	k.Exp(new(big.Int).SetInt64(2), new(big.Int).SetUint64(bits), nil).
+		Sub(k, new(big.Int).SetInt64(1)).
+		Div(k, new(big.Int).SetUint64(repetition))
+	return k
+}
+
+// Tries to find right nonce to have k zeros at
+func proofOfWorkIT(k int, preM []byte) ([]byte, error) {
+	// Threshold that must not be crossed to have a valid nonce
+	threshold := PoWThreshold(ScryptRepetion, 256)
+	nonce := make([]byte, ScryptNonceSize)
+	rand.Read(nonce)
+	m := append(preM, nonce...)
+	// https://wizardforcel.gitbooks.io/practical-cryptography-for-developers-book/content/mac-and-key-derivation/scrypt.html
+	// Memory required = 128 * N * r * p bytes
+	for i := 0; i < 2*ScryptRepetion; i++ {
+		hash, err := scrypt.Key(m, nonce, ScryptN, ScryptR, ScryptP, ScryptHashlength)
+		if err != nil {
+			return nil, err
+		}
+		hashVal := new(big.Int).SetBytes(hash)
+		if hashVal.Cmp(threshold) <= 0 {
+			return nonce, nil
+		}
+		rand.Read(nonce)
+	}
+	return nil, errors.New("securecomm: No suitable nonces found for PoW")
 }
