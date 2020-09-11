@@ -38,8 +38,10 @@ type Config struct {
 type SecureListener struct {
 	ln     net.TCPListener
 	config *Config
-	quit   chan interface{}
-	wg     sync.WaitGroup
+	// Receives quit signal
+	quit chan interface{}
+	// Used for waiting for goroutines to finish
+	wg sync.WaitGroup
 }
 
 // Client returns a new secure client side connection
@@ -63,6 +65,7 @@ func Client(conn *net.TCPConn, config *Config) *SecureConn {
 func SecureServer(conn *net.TCPConn, config *Config) *SecureConn {
 	c := &SecureConn{
 		conn:     conn,
+		config:   config,
 		isClient: false,
 		input:    gob.NewDecoder(io.LimitReader(conn, 65580*config.cacheSize)),
 		output:   gob.NewEncoder(io.Writer(conn)),
@@ -119,16 +122,6 @@ func NewConfig(trustedIdentitiesPath, hostKeyPath, pubKeyPath string) (*Config, 
 	return &Config{TrustedIdentitiesPath: trustedIdentitiesPath, HostKey: privateKey, k: k}, nil
 }
 
-// NewListener is the constructor function of SecureListener.
-func NewListener(inner *net.TCPListener, config *Config) *SecureListener {
-	sl := &SecureListener{
-		ln:     *inner,
-		config: config,
-		quit:   make(chan interface{}),
-	}
-	return sl
-}
-
 // Listen is the function for creating a secure
 // communication listener.
 func Listen(network string, laddr *net.TCPAddr, config *Config) (net.Listener, error) {
@@ -138,6 +131,16 @@ func Listen(network string, laddr *net.TCPAddr, config *Config) (net.Listener, e
 		return nil, err
 	}
 	return NewListener(ln, config), nil
+}
+
+// NewListener is the constructor function of SecureListener.
+func NewListener(inner *net.TCPListener, config *Config) *SecureListener {
+	sl := &SecureListener{
+		ln:     *inner,
+		config: config,
+		quit:   make(chan interface{}),
+	}
+	return sl
 }
 
 type timeoutError struct{}
@@ -293,7 +296,7 @@ func (sc *SecureConn) Write(b []byte) (int, error) {
 	}
 	cipher, err := aes.NewCipher(sc.masterKey[:32])
 	if err != nil {
-		return -1, err
+		return 0, err
 	}
 	encB := make([]byte, len(b))
 	cipher.Encrypt(encB, b)
@@ -341,13 +344,4 @@ func (sc *SecureConn) SetReadDeadline(t time.Time) error {
 // After a Write has timed out, the TLS state is corrupt and all future writes will return the same error.
 func (sc *SecureConn) SetWriteDeadline(t time.Time) error {
 	return sc.conn.SetWriteDeadline(t)
-}
-
-// Clone returns a shallow clone of c. It is safe to clone a Config that is
-// being used concurrently by a TLS client or server.
-func (c *Config) Clone() *Config {
-	return &Config{
-		TrustedIdentitiesPath: c.TrustedIdentitiesPath,
-		HostKey:               c.HostKey,
-	}
 }

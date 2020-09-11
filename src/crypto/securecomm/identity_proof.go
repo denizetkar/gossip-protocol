@@ -92,26 +92,26 @@ func PoWThreshold(repetition, bits uint64) *big.Int {
 }
 
 // Tries to find right nonce to have k zeros at
-func proofOfWork(k int, h *Handshake) ([]byte, error) {
+func proofOfWork(k int, h *Handshake) error {
 	// Threshold that must not be crossed to have a valid nonce
 	threshold := PoWThreshold(ScryptRepetion, ScryptHashlength*8)
-	nonce := make([]byte, ScryptNonceSize)
+	h.Nonce = make([]byte, ScryptNonceSize)
 	rand.Read(h.Nonce)
 	// https://wizardforcel.gitbooks.io/practical-cryptography-for-developers-book/content/mac-and-key-derivation/scrypt.html
 	// Memory required = 128 * N * r * p bytes
 	for i := 0; i < 2*ScryptRepetion; i++ {
 		hash, err := h.hashVal()
 		if err != nil {
-			return nil, err
+			return err
 		}
 		hashVal := new(big.Int).SetBytes(hash)
 		if hashVal.Cmp(threshold) <= 0 {
-			return nonce, nil
+			return nil
 		}
-		rand.Read(nonce)
+		rand.Read(h.Nonce)
 	}
 	h.Nonce = nil
-	return nil, errors.New("securecomm: No suitable nonces found for PoW")
+	return errors.New("securecomm: No suitable nonces found for PoW")
 }
 
 func checkIdentity(pubKey *rsa.PublicKey, path string) error {

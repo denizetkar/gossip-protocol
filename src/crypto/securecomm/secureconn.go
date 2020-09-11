@@ -28,11 +28,12 @@ type SecureConn struct {
 	// Master Key which encrypts and decrypts communication between two peers
 	masterKey []byte
 
+	// Mutex for access to the communication input/outputs
 	in  sync.Mutex
 	out sync.Mutex
 }
 
-// Message that is seriallized and should be send or received
+// Message that is serialized and should be send or received
 // Includes either Data or Handshake
 type Message struct {
 	Data      []byte
@@ -62,15 +63,15 @@ func (h *Handshake) isValid() bool {
 
 // concatIdentifiers returns a byte slice of every identity-realted field in the handshake (DHPub, RSAPub, Time, Addr)
 func (h *Handshake) concatIdentifiers() (result []byte) {
-	// Seriallize Public Key
+	// Serialize Public Key
 	rsaPub := x509.MarshalPKCS1PublicKey(&h.RSAPub)
 	result = append(h.DHPub, rsaPub...)
 
-	// Seriallize Time
+	// Serialize Time
 	timeBytes := toByteArray(h.Time.Unix())
 	result = append(result, timeBytes[:]...)
 
-	// Seriallize IP adress
+	// Serialize IP adress
 	addrBytes, _ := hex.DecodeString(h.Addr.String())
 	result = append(result, addrBytes...)
 	return result
@@ -78,17 +79,7 @@ func (h *Handshake) concatIdentifiers() (result []byte) {
 
 // concatIdentifiers returns a byte slice of every field in the handshake except RSASig(DHPub, RSAPub, Time, Addr, Nonce)
 func (h *Handshake) concatIdentifiersInclNonce() (result []byte) {
-	// Seriallize Public Key
-	rsaPub := x509.MarshalPKCS1PublicKey(&h.RSAPub)
-	result = append(h.DHPub, rsaPub...)
-
-	// Seriallize Time
-	timeBytes := toByteArray(h.Time.Unix())
-	result = append(result, timeBytes[:]...)
-
-	// Seriallize IP adress
-	addrBytes, _ := hex.DecodeString(h.Addr.String())
-	result = append(result, addrBytes...)
+	result = h.concatIdentifiers()
 	result = append(result, h.Nonce...)
 	return result
 }

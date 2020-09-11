@@ -83,12 +83,11 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 		Addr:     c.LocalAddr(),
 		IsClient: false}
 
-	nonce, err := proofOfWork(c.config.k, &handshake)
+	err = proofOfWork(c.config.k, &handshake)
 	if err != nil {
 		return err
 	}
-	handshake.Nonce = nonce
-	m := append(handshake.concatIdentifiers(), nonce...)
+	m := append(handshake.concatIdentifiers(), handshake.Nonce...)
 	shaM := sha3.Sum256(m)
 	s, err := privKey.Sign(rand.Reader, shaM[:], crypto.SHA3_256)
 	if err != nil {
