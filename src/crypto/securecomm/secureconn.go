@@ -29,19 +29,19 @@ type SecureConn struct {
 // Message that is seriallized and should be send or received
 // Includes either Data or Handshake
 type Message struct {
-	IsClient  bool
 	Data      []byte
 	Handshake Handshake
 }
 
 // Handshake that can be included in a message
 type Handshake struct {
-	DHPub  []byte
-	RSAPub rsa.PublicKey
-	Time   time.Time
-	Addr   net.Addr
-	Nonce  []byte
-	RSASig []byte
+	DHPub    []byte
+	RSAPub   rsa.PublicKey
+	Time     time.Time
+	Addr     net.Addr
+	Nonce    []byte
+	RSASig   []byte
+	IsClient bool
 }
 
 func (h *Handshake) isEmpty() bool {
@@ -84,6 +84,8 @@ func (h *Handshake) concatIdentifiersInclNonce() (result []byte) {
 type messageError struct{}
 
 func (messageError) Error() string { return "securecomm: Message format is incorrect" }
+
+// Write a Message directly, should be used only internally
 func (c *SecureConn) write(data *Message) error {
 	if !(data.Data != nil || !data.Handshake.isEmpty()) {
 		return messageError{}
@@ -91,6 +93,8 @@ func (c *SecureConn) write(data *Message) error {
 	err := c.output.Encode(data)
 	return err
 }
+
+// Read a Message directly, should be used only internally
 func (c *SecureConn) read() (data *Message, err error) {
 
 	err = c.input.Decode(data)

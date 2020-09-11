@@ -53,10 +53,11 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 
 	// Write handshake to server
 	handshake := Handshake{
-		DHPub:  hs.km.dhPub,
-		RSAPub: hs.c.config.HostKey.PublicKey,
-		Time:   time.Now().UTC(),
-		Addr:   c.LocalAddr()}
+		DHPub:    hs.km.dhPub,
+		RSAPub:   hs.c.config.HostKey.PublicKey,
+		Time:     time.Now().UTC(),
+		Addr:     c.LocalAddr(),
+		IsClient: true}
 
 	nonce, err := proofOfWork(c.config.k, handshake.concatIdentifiers())
 	if err != nil {
@@ -72,7 +73,6 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 	hs.mClient.RSASig = s
 	c.write(
 		&Message{
-			IsClient:  true,
 			Data:      nil,
 			Handshake: handshake})
 
@@ -81,7 +81,7 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 	if err != nil {
 		return err
 	}
-	if handshakeServer.Data != nil || handshakeServer.IsClient == true || handshakeServer.Handshake.isEmpty() {
+	if handshakeServer.Data != nil || handshakeServer.Handshake.IsClient == true || handshakeServer.Handshake.isEmpty() {
 		return messageError{}
 	}
 	hs.mServer = handshakeServer.Handshake
