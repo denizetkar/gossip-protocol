@@ -8,6 +8,10 @@ type P2PListenerCrashedMSGPayload error
 // with type P2PListenerClosedMSG.
 type P2PListenerClosedMSGPayload void
 
+// IncomingP2PCreatedMSGPayload is the payload type of an InternalMessage
+// with type IncomingP2PCreatedMSG.
+type IncomingP2PCreatedMSGPayload *P2PEndpoint
+
 // P2PEndpointCrashedMSGPayload is the payload type of an InternalMessage
 // with type P2PEndpointCrashedMSG.
 type P2PEndpointCrashedMSGPayload struct {

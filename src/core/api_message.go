@@ -8,6 +8,10 @@ type APIListenerCrashedMSGPayload error
 // with type APIListenerClosedMSG.
 type APIListenerClosedMSGPayload void
 
+// APIEndpointCreatedMSGPayload is the payload type of an InternalMessage
+// with type APIEndpointCreatedMSG.
+type APIEndpointCreatedMSGPayload *APIEndpoint
+
 // APIEndpointCrashedMSGPayload is the payload type of an InternalMessage
 // with type APIEndpointCrashedMSG.
 type APIEndpointCrashedMSGPayload struct {
