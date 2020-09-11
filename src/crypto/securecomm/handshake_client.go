@@ -53,32 +53,33 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 	c := hs.c
 	privKey := c.config.HostKey
 
-	// Write handshake to server
 	handshake := Handshake{
 		DHPub:    hs.km.dhPub,
-		RSAPub:   hs.c.config.HostKey.PublicKey,
+		RSAPub:   c.config.HostKey.PublicKey,
 		Time:     time.Now().UTC(),
 		Addr:     c.LocalAddr(),
 		IsClient: true}
 
-	nonce, err := proofOfWork(c.config.k, &handshake)
+	err := proofOfWork(c.config.k, &handshake)
 	if err != nil {
 		return err
 	}
-	handshake.Nonce = nonce
-	m := append(handshake.concatIdentifiers(), nonce...)
-	shaM := sha3.Sum256(m)
+
+	// Sign message
+	shaM := sha3.Sum256(handshake.concatIdentifiersInclNonce())
 	s, err := privKey.Sign(rand.Reader, shaM[:], crypto.SHA3_256)
 	if err != nil {
 		return err
 	}
-	handshake.Nonce = s
+	handshake.RSASig = s
+
+	// Write handshake to server
 	c.write(
 		&Message{
 			Data:      nil,
 			Handshake: handshake})
-
 	hs.mClient = &handshake
+
 	// Read and verify server handshake
 	handshakeServer, err := c.read()
 	if err != nil {
