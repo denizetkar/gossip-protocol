@@ -80,16 +80,6 @@ func (c *SecureConn) read() (data *Message, err error) {
 	return data, err
 }
 
-// // Extract components of handshake message
-// func splitM(m []byte, nonceSize int) (dhe []byte, rsa []byte, nonce []byte, time []byte, addr []byte rsaSig []byte) {
-// 	dhe = m[:128]
-// 	rsa = m[128 : 128+512]
-// 	nonce = m[len(m)-512-nonceSize : len(m)-512]
-
-// 	rsaSig = m[len(m)-512:]
-// 	return dhe, rsa, nonce, time, addr, rsaSig
-// }
-
 // Handshake runs the client or server handshake
 // protocol if it has not yet been run.
 //
