@@ -1,9 +1,13 @@
 package securecomm
 
 import (
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
 	"errors"
 	"math/big"
 	"math/rand"
+	"parser/identity"
 
 	"github.com/monnand/dhkx"
 	"golang.org/x/crypto/scrypt"
@@ -51,25 +55,25 @@ func (km *KeyManagement) returnNonceSize() int {
 	return ScryptNonceSize
 }
 
-// Tries to find right nonce to have k zeros at
-func proofOfWork(k int, preM []byte) ([]byte, error) {
-	// Length of the hash created by scrypt
-	nonce := make([]byte, ScryptNonceSize)
-	rand.Read(nonce)
-	m := append(preM, nonce...)
-	// https://wizardforcel.gitbooks.io/practical-cryptography-for-developers-book/content/mac-and-key-derivation/scrypt.html
-	// Memory required = 128 * N * r * p bytes
-	hash, err := scrypt.Key(m, nonce, ScryptN, ScryptR, ScryptP, ScryptHashlength)
-	if err != nil {
-		return nil, err
-	}
-	for i := ScryptHashlength - 1; i >= k; i-- {
-		if hash[i] != 0 {
-			return proofOfWork(k, preM)
-		}
-	}
-	return nonce, nil
-}
+// // Tries to find right nonce to have k zeros at
+// func proofOfWork(k int, preM []byte) ([]byte, error) {
+// 	// Length of the hash created by scrypt
+// 	nonce := make([]byte, ScryptNonceSize)
+// 	rand.Read(nonce)
+// 	m := append(preM, nonce...)
+// 	// https://wizardforcel.gitbooks.io/practical-cryptography-for-developers-book/content/mac-and-key-derivation/scrypt.html
+// 	// Memory required = 128 * N * r * p bytes
+// 	hash, err := scrypt.Key(m, nonce, ScryptN, ScryptR, ScryptP, ScryptHashlength)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	for i := ScryptHashlength - 1; i >= k; i-- {
+// 		if hash[i] != 0 {
+// 			return proofOfWork(k, preM)
+// 		}
+// 	}
+// 	return nonce, nil
+// }
 
 // checkProofOfWorkValidity expects k, and the handshake, where the nonce is seperated and the signatur is not included and checks the handshake for validity of the proof of work
 func checkProofOfWorkValidity(k int, m []byte, nonce []byte) error {
@@ -77,6 +81,7 @@ func checkProofOfWorkValidity(k int, m []byte, nonce []byte) error {
 	if err != nil {
 		return err
 	}
+	//TODO: Change to work with PowThreshold()
 	for i := ScryptHashlength - 1; i >= ScryptHashlength-k; i-- {
 		if hash[i] != 0 {
 			return errors.New("ProofOfWork is not valid")
@@ -96,7 +101,7 @@ func PoWThreshold(repetition, bits uint64) *big.Int {
 }
 
 // Tries to find right nonce to have k zeros at
-func proofOfWorkIT(k int, preM []byte) ([]byte, error) {
+func proofOfWork(k int, preM []byte) ([]byte, error) {
 	// Threshold that must not be crossed to have a valid nonce
 	threshold := PoWThreshold(ScryptRepetion, 256)
 	nonce := make([]byte, ScryptNonceSize)
@@ -116,4 +121,16 @@ func proofOfWorkIT(k int, preM []byte) ([]byte, error) {
 		rand.Read(nonce)
 	}
 	return nil, errors.New("securecomm: No suitable nonces found for PoW")
+}
+
+func checkIdentity(pubKey *rsa.PublicKey, path string) error {
+	pubKeyBytes := x509.MarshalPKCS1PublicKey(pubKey)
+	shaKey := sha256.Sum256(pubKeyBytes)
+	identities := identity.Parse(path)
+	for _, v := range identities {
+		if v == string(shaKey[:]) {
+			return nil
+		}
+	}
+	return errors.New("securecomm: Identity is not trusted")
 }
