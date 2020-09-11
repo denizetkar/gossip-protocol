@@ -58,7 +58,7 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 	if err != nil {
 		return err
 	}
-	if handshakeClient.Data != nil || handshakeClient.Handshake.IsClient == true || handshakeClient.Handshake.isValid() {
+	if handshakeClient.Data != nil || handshakeClient.Handshake.IsClient == false || handshakeClient.Handshake.isValid() {
 		return messageError{}
 	}
 	hs.mClient = &handshakeClient.Handshake
@@ -66,7 +66,7 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 	if err != nil {
 		return err
 	}
-	err = checkIdentity(&hs.mClient.RSAPub, hs.c.config.TrustedIdentitiesPath)
+	err = CheckIdentity(&hs.mClient.RSAPub, hs.c.config.TrustedIdentitiesPath)
 	if err != nil {
 		return err
 	}
@@ -83,25 +83,22 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 		Addr:     c.LocalAddr(),
 		IsClient: false}
 
-	err = proofOfWork(c.config.k, &handshake)
+	err = ProofOfWork(c.config.k, &handshake)
 	if err != nil {
 		return err
 	}
-	m := append(handshake.concatIdentifiers(), handshake.Nonce...)
-	shaM := sha3.Sum256(m)
+	shaM := sha3.Sum256(handshake.concatIdentifiersInclNonce())
 	s, err := privKey.Sign(rand.Reader, shaM[:], crypto.SHA3_256)
 	if err != nil {
 		return err
 	}
 	handshake.RSASig = s
-	hs.mServer = &handshake
 	c.write(
 		&Message{
 			Data:      nil,
 			Handshake: handshake})
-	if err != nil {
-		return err
-	}
+	hs.mServer = &handshake
+
 	return nil
 }
 func (hs *serverHandshakeState) establishKey() (err error) {

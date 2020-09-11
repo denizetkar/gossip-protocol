@@ -60,7 +60,7 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 		Addr:     c.LocalAddr(),
 		IsClient: true}
 
-	err := proofOfWork(c.config.k, &handshake)
+	err := ProofOfWork(c.config.k, &handshake)
 	if err != nil {
 		return err
 	}
@@ -93,7 +93,7 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 	if err != nil {
 		return err
 	}
-	err = checkIdentity(&hs.mServer.RSAPub, hs.c.config.TrustedIdentitiesPath)
+	err = CheckIdentity(&hs.mServer.RSAPub, hs.c.config.TrustedIdentitiesPath)
 	if err != nil {
 		return err
 	}

@@ -34,7 +34,7 @@ func emptyKM() *KeyManagement {
 	return &KeyManagement{}
 }
 
-func (h *Handshake) hashVal() ([]byte, error) {
+func (h *Handshake) hashVal() (*big.Int, error) {
 	if h.Nonce == nil {
 		return nil, errors.New("securecomm: Nonce should not be nil")
 	}
@@ -42,7 +42,7 @@ func (h *Handshake) hashVal() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return hash, nil
+	return new(big.Int).SetBytes(hash), nil
 }
 
 func (km *KeyManagement) generateOwnDHKeys() {
@@ -68,17 +68,16 @@ func (km *KeyManagement) returnNonceSize() int {
 
 // checkProofOfWorkValidity expects k, and the handshake, where the nonce is seperated and the signatur is not included and checks the handshake for validity of the proof of work
 func checkProofOfWorkValidity(k int, h *Handshake) error {
-	hash, err := h.hashVal()
+	hashVal, err := h.hashVal()
 	if err != nil {
 		return err
 	}
-	//TODO: Change to work with PowThreshold()
-	for i := ScryptHashlength - 1; i >= ScryptHashlength-k; i-- {
-		if hash[i] != 0 {
-			return errors.New("ProofOfWork is not valid")
-		}
+	threshold := PoWThreshold(ScryptRepetion, ScryptHashlength*8)
+
+	if hashVal.Cmp(threshold) <= 0 {
+		return nil
 	}
-	return nil
+	return errors.New("ProofOfWork is not valid")
 }
 
 // PoWThreshold returns the 'k' value for a given bit size and repetition.
@@ -91,8 +90,8 @@ func PoWThreshold(repetition, bits uint64) *big.Int {
 	return k
 }
 
-// Tries to find right nonce to have k zeros at
-func proofOfWork(k int, h *Handshake) error {
+// ProofOfWork tries to find right nonce to have k leading zeros
+func ProofOfWork(k int, h *Handshake) error {
 	// Threshold that must not be crossed to have a valid nonce
 	threshold := PoWThreshold(ScryptRepetion, ScryptHashlength*8)
 	h.Nonce = make([]byte, ScryptNonceSize)
@@ -100,11 +99,10 @@ func proofOfWork(k int, h *Handshake) error {
 	// https://wizardforcel.gitbooks.io/practical-cryptography-for-developers-book/content/mac-and-key-derivation/scrypt.html
 	// Memory required = 128 * N * r * p bytes
 	for i := 0; i < 2*ScryptRepetion; i++ {
-		hash, err := h.hashVal()
+		hashVal, err := h.hashVal()
 		if err != nil {
 			return err
 		}
-		hashVal := new(big.Int).SetBytes(hash)
 		if hashVal.Cmp(threshold) <= 0 {
 			return nil
 		}
@@ -114,7 +112,8 @@ func proofOfWork(k int, h *Handshake) error {
 	return errors.New("securecomm: No suitable nonces found for PoW")
 }
 
-func checkIdentity(pubKey *rsa.PublicKey, path string) error {
+// CheckIdentity ensures that the public key is trusted using the out-of-band shared identities
+func CheckIdentity(pubKey *rsa.PublicKey, path string) error {
 	pubKeyBytes := x509.MarshalPKCS1PublicKey(pubKey)
 	shaKey := sha256.Sum256(pubKeyBytes)
 	identities := identity.Parse(path)
