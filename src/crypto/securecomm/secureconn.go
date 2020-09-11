@@ -47,8 +47,14 @@ type Handshake struct {
 	IsClient bool
 }
 
-func (h *Handshake) isEmpty() bool {
-	return h.DHPub == nil && h.RSAPub.Size() == 0 && h.Time.IsZero() && h.Addr.String() == "" && h.Nonce == nil && h.RSASig == nil
+func (h *Handshake) isValid() bool {
+	return len(h.DHPub) == 256 &&
+		h.RSAPub.Size() == 512 &&
+		!h.Time.IsZero() &&
+		h.Addr != nil &&
+		h.Addr.String() != "" &&
+		len(h.Nonce) == ScryptNonceSize &&
+		len(h.RSASig) == 512
 }
 
 // concatIdentifiers returns a byte slice of every identity-realted field in the handshake (DHPub, RSAPub, Time, Addr)
@@ -90,7 +96,7 @@ func (messageError) Error() string { return "securecomm: Message format is incor
 
 // Write a Message directly, should be used only internally
 func (c *SecureConn) write(data *Message) error {
-	if !(data.Data != nil || !data.Handshake.isEmpty()) {
+	if !(data.Data != nil || !data.Handshake.isValid()) {
 		return messageError{}
 	}
 	err := c.output.Encode(data)

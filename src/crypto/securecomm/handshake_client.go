@@ -4,7 +4,6 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/x509"
 	"errors"
 	"time"
 
@@ -32,8 +31,8 @@ func (c *SecureConn) clientHandshake() (err error) {
 type clientHandshakeState struct {
 	c            *SecureConn
 	km           *KeyManagement
-	mClient      Handshake
-	mServer      Handshake
+	mClient      *Handshake
+	mServer      *Handshake
 	masterSecret []byte
 }
 
@@ -60,33 +59,34 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 		Addr:     c.LocalAddr(),
 		IsClient: true}
 
-	nonce, err := proofOfWork(c.config.k, handshake.concatIdentifiers())
+	nonce, err := proofOfWork(c.config.k, &handshake)
 	if err != nil {
 		return err
 	}
-	hs.mClient.Nonce = nonce
+	handshake.Nonce = nonce
 	m := append(handshake.concatIdentifiers(), nonce...)
 	shaM := sha3.Sum256(m)
 	s, err := privKey.Sign(rand.Reader, shaM[:], crypto.SHA3_256)
 	if err != nil {
 		return err
 	}
-	hs.mClient.RSASig = s
+	handshake.Nonce = s
 	c.write(
 		&Message{
 			Data:      nil,
 			Handshake: handshake})
 
+	hs.mClient = &handshake
 	// Read and verify server handshake
 	handshakeServer, err := c.read()
 	if err != nil {
 		return err
 	}
-	if handshakeServer.Data != nil || handshakeServer.Handshake.IsClient == true || handshakeServer.Handshake.isEmpty() {
+	if handshakeServer.Data != nil || handshakeServer.Handshake.IsClient == true || handshakeServer.Handshake.isValid() {
 		return messageError{}
 	}
-	hs.mServer = handshakeServer.Handshake
-	err = checkProofOfWorkValidity(hs.c.config.k, hs.mServer.concatIdentifiers(), hs.mServer.Nonce)
+	hs.mServer = &handshakeServer.Handshake
+	err = checkProofOfWorkValidity(hs.c.config.k, hs.mServer)
 	if err != nil {
 		return err
 	}
@@ -101,7 +101,6 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 	return nil
 }
 func (hs *clientHandshakeState) establishKey() (err error) {
-	serverRSAPub := x509.MarshalPKCS1PublicKey(&hs.mServer.RSAPub)
-	hs.masterSecret, err = hs.km.computeFinalKey(serverRSAPub)
+	hs.masterSecret, err = hs.km.computeFinalKey(hs.mServer.DHPub)
 	return err
 }

@@ -4,7 +4,6 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/x509"
 	"errors"
 	"time"
 
@@ -32,8 +31,8 @@ func (c *SecureConn) serverHandshake() (err error) {
 type serverHandshakeState struct {
 	c            *SecureConn
 	km           *KeyManagement
-	mClient      Handshake
-	mServer      Handshake
+	mClient      *Handshake
+	mServer      *Handshake
 	masterSecret []byte
 }
 
@@ -57,11 +56,11 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 	if err != nil {
 		return err
 	}
-	if handshakeClient.Data != nil || handshakeClient.Handshake.IsClient == true || handshakeClient.Handshake.isEmpty() {
+	if handshakeClient.Data != nil || handshakeClient.Handshake.IsClient == true || handshakeClient.Handshake.isValid() {
 		return messageError{}
 	}
-	hs.mClient = handshakeClient.Handshake
-	err = checkProofOfWorkValidity(hs.c.config.k, hs.mClient.concatIdentifiers(), hs.mClient.Nonce)
+	hs.mClient = &handshakeClient.Handshake
+	err = checkProofOfWorkValidity(hs.c.config.k, hs.mClient)
 	if err != nil {
 		return err
 	}
@@ -82,19 +81,19 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 		Addr:     c.LocalAddr(),
 		IsClient: false}
 
-	nonce, err := proofOfWork(c.config.k, handshake.concatIdentifiers())
+	nonce, err := proofOfWork(c.config.k, &handshake)
 	if err != nil {
 		return err
 	}
-	hs.mServer.Nonce = nonce
+	handshake.Nonce = nonce
 	m := append(handshake.concatIdentifiers(), nonce...)
 	shaM := sha3.Sum256(m)
 	s, err := privKey.Sign(rand.Reader, shaM[:], crypto.SHA3_256)
 	if err != nil {
 		return err
 	}
-	hs.mServer.RSASig = s
-
+	handshake.RSASig = s
+	hs.mServer = &handshake
 	c.write(
 		&Message{
 			Data:      nil,
@@ -105,7 +104,6 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 	return nil
 }
 func (hs *serverHandshakeState) establishKey() (err error) {
-	clientRSAPub := x509.MarshalPKCS1PublicKey(&hs.mClient.RSAPub)
-	hs.masterSecret, err = hs.km.computeFinalKey(clientRSAPub)
+	hs.masterSecret, err = hs.km.computeFinalKey(hs.mClient.DHPub)
 	return err
 }
