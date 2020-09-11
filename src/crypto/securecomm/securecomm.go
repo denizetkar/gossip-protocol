@@ -265,7 +265,7 @@ func (sc *SecureConn) Read(b []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	cipher, err := aes.NewCipher(sc.masterKey)
+	cipher, err := aes.NewCipher(sc.masterKey[:32])
 	if err != nil {
 		return 0, err
 	}
@@ -281,7 +281,7 @@ func (sc *SecureConn) Write(b []byte) (int, error) {
 	if err := sc.Handshake(); err != nil {
 		return 0, err
 	}
-	cipher, err := aes.NewCipher(sc.masterKey)
+	cipher, err := aes.NewCipher(sc.masterKey[:32])
 	if err != nil {
 		return -1, err
 	}
