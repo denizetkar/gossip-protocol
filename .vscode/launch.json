@@ -12,7 +12,7 @@
             "program": "${fileDirname}",
             "env": {},
             "args": [],
-            "cwd": "${fileDirname}/../.."
+            "cwd": "${fileDirname}"
         }
     ]
 }

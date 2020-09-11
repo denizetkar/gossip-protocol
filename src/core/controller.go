@@ -34,10 +34,12 @@ func init() {
 	centralControllerHandlers[GossiperClosedMSG] = (*CentralController).gossiperClosedHandler
 	centralControllerHandlers[APIListenerCrashedMSG] = (*CentralController).apiEndpointCrashedHandler
 	centralControllerHandlers[APIListenerClosedMSG] = (*CentralController).apiEndpointClosedHandler
+	centralControllerHandlers[APIEndpointCreatedMSG] = (*CentralController).apiEndpointCreatedHandler
 	centralControllerHandlers[APIEndpointCrashedMSG] = (*CentralController).apiEndpointCrashedHandler
 	centralControllerHandlers[APIEndpointClosedMSG] = (*CentralController).apiEndpointClosedHandler
 	centralControllerHandlers[P2PListenerCrashedMSG] = (*CentralController).p2pListenerCrashedHandler
 	centralControllerHandlers[P2PListenerClosedMSG] = (*CentralController).p2pListenerClosedHandler
+	centralControllerHandlers[IncomingP2PCreatedMSG] = (*CentralController).incomingP2PCreatedHandler
 	centralControllerHandlers[P2PEndpointCrashedMSG] = (*CentralController).p2pEndpointCrashedHandler
 	centralControllerHandlers[P2PEndpointClosedMSG] = (*CentralController).p2pEndpointClosedHandler
 	centralControllerHandlers[OutgoingP2PCreatedMSG] = (*CentralController).outgoingP2PCreatedHandler
@@ -48,9 +50,9 @@ func init() {
 	centralControllerStopMessages = set.New().Add(PeerRemoveMSG).
 		Add(MembershipCrashedMSG).Add(MembershipClosedMSG).
 		Add(GossiperCrashedMSG).Add(GossiperClosedMSG).
-		Add(APIListenerCrashedMSG).Add(APIListenerClosedMSG).
+		Add(APIListenerCrashedMSG).Add(APIListenerClosedMSG).Add(APIEndpointCreatedMSG).
 		Add(APIEndpointCrashedMSG).Add(APIEndpointClosedMSG).
-		Add(P2PListenerCrashedMSG).Add(P2PListenerClosedMSG).
+		Add(P2PListenerCrashedMSG).Add(P2PListenerClosedMSG).Add(IncomingP2PCreatedMSG).
 		Add(P2PEndpointCrashedMSG).Add(P2PEndpointClosedMSG).
 		Add(OutgoingP2PCreatedMSG).Add(CentralCrashMSG)
 }
@@ -568,6 +570,46 @@ func (centralController *CentralController) apiListenerClosedHandler(payload Any
 	return nil
 }
 
+// apiEndpointCreatedHandler is the method called by the Run method for when
+// it receives an internal message of type APIEndpointCreatedMSG.
+func (centralController *CentralController) apiEndpointCreatedHandler(payload AnyMessage) error {
+	endp, ok := payload.(*APIEndpoint)
+	if !ok {
+		return nil
+	}
+	// Check if the client of this endpoint already exists.
+	_, isMember := centralController.apiClients[endp.apiClient]
+	if isMember {
+		// Log this unexpected event.
+		log.Println("API endpoint", endp.apiClient.addr, "already exists!")
+	}
+	// Check if there is enough capacity left for the api endpoint.
+	// Also check if the Central controller is stopping.
+	if len(centralController.apiClients) >= int(centralController.apiClientsMAX) ||
+		isMember || centralController.state.isStopping {
+		// Close the connection inside the endpoint.
+		go func() {
+			endp.conn.Close()
+		}()
+		return nil
+	}
+	// Start running the reader and writer goroutines.
+	endp.RunReaderGoroutine()
+	endp.RunWriterGoroutine()
+	// Account for the reader and writer goroutines.
+	centralController.state.totalGoroutines += 2
+	// Add the client into the list.
+	centralController.apiClients[endp.apiClient] = &APIClientInfoCentral{
+		endpoint: endp,
+		state: APIClientState{
+			APIClientReaderRUNNING,
+			APIClientWriterRUNNING},
+		hasCrashed: false,
+	}
+
+	return nil
+}
+
 // apiEndpointClosed is the method called when an api endpoint is closed.
 func (centralController *CentralController) apiEndpointClosed(
 	endp *APIEndpoint, isReader bool, err error) error {
@@ -672,6 +714,46 @@ func (centralController *CentralController) p2pListenerClosedHandler(payload Any
 	if centralController.state.totalGoroutines <= 0 {
 		// Signal for graceful closure.
 		return &CloseError{}
+	}
+
+	return nil
+}
+
+// incomingP2PCreatedHandler is the method called by the Run method for when
+// it receives an internal message of type IncomingP2PCreatedMSG.
+func (centralController *CentralController) incomingP2PCreatedHandler(payload AnyMessage) error {
+	endp, ok := payload.(*P2PEndpoint)
+	if !ok {
+		return nil
+	}
+	// Check if the peer of this endpoint already exists.
+	_, isMember := centralController.incomingViewList[endp.peer]
+	if isMember {
+		// Log this unexpected event.
+		log.Println("Incoming P2P endpoint", endp.peer.Addr, "already exists!")
+	}
+	// Check if there is enough capacity left for the incoming p2p endpoint.
+	// Also check if the Central controller is stopping.
+	if len(centralController.incomingViewList) >= int(centralController.incomingViewListMAX) ||
+		isMember || centralController.state.isStopping {
+		// Close the connection inside the endpoint.
+		go func() {
+			endp.conn.Close()
+		}()
+		return nil
+	}
+	// Start running the reader and writer goroutines.
+	endp.RunReaderGoroutine()
+	endp.RunWriterGoroutine()
+	// Account for the reader and writer goroutines.
+	centralController.state.totalGoroutines += 2
+	// Add the peer into the incoming view list.
+	centralController.incomingViewList[endp.peer] = &PeerInfoCentral{
+		endpoint: endp,
+		state: PeerState{
+			readerState: PeerReaderRUNNING,
+			writerState: PeerWriterRUNNING},
+		hasCrashed: false,
 	}
 
 	return nil
@@ -964,11 +1046,10 @@ func (centralController *CentralController) closeHandler(payload AnyMessage) err
 	}
 
 	centralController.state.isStopping = true
-	go func() {
-		time.Sleep(closureTimeout)
+	time.AfterFunc(closureTimeout, func() {
 		centralController.MsgInQueue <- InternalMessage{
 			Type: CentralCrashMSG, Payload: fmt.Errorf("graceful closure timed out")}
-	}()
+	})
 
 	return nil
 }
