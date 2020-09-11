@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/gob"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -27,6 +28,8 @@ type Config struct {
 	HostKey *rsa.PrivateKey
 	// Number of zeros necessary in Proof Of Work hash
 	k int
+	// CacheSize is needed to calculate maximum message size
+	cacheSize int64
 }
 
 // SecureListener is the secure communication listener.
@@ -36,22 +39,16 @@ type SecureListener struct {
 	config *Config
 }
 
-var emptyConfig Config
-
-func defaultConfig() *Config {
-	return &emptyConfig
-}
-
 // Client returns a new secure client side connection
 // using conn as the underlying transport.
 // The config cannot be nil: users must set either ServerName or
 // InsecureSkipVerify in the config.
-func Client(conn net.Conn, config *Config) *SecureConn {
+func Client(conn *net.TCPConn, config *Config) *SecureConn {
 	c := &SecureConn{
 		conn:     conn,
 		config:   config,
 		isClient: true,
-		input:    gob.NewDecoder(io.LimitReader(conn, 8192)),
+		input:    gob.NewDecoder(io.LimitReader(conn, 65580*config.cacheSize)),
 		output:   gob.NewEncoder(io.Writer(conn)),
 	}
 	c.handshakeFn = c.clientHandshake
@@ -60,11 +57,11 @@ func Client(conn net.Conn, config *Config) *SecureConn {
 
 // SecureServer returns a new secure server side connection
 // using TCPConn as the underlying transport.
-func SecureServer(conn *net.TCPConn) *SecureConn {
+func SecureServer(conn *net.TCPConn, config *Config) *SecureConn {
 	c := &SecureConn{
 		conn:     conn,
 		isClient: false,
-		input:    gob.NewDecoder(io.LimitReader(conn, 8192)),
+		input:    gob.NewDecoder(io.LimitReader(conn, 65580*config.cacheSize)),
 		output:   gob.NewEncoder(io.Writer(conn)),
 	}
 	c.handshakeFn = c.serverHandshake
@@ -131,7 +128,7 @@ func NewListener(inner *net.TCPListener, config *Config) *SecureListener {
 // communication listener.
 func Listen(network string, laddr *net.TCPAddr, config *Config) (net.Listener, error) {
 	//TODO: Check for prerequisitions
-	// Construct a TCPListener
+	// Constructs a TCPListener
 	ln, err := net.ListenTCP(network, laddr)
 	if err != nil {
 		return nil, err
@@ -150,14 +147,14 @@ func (timeoutError) Temporary() bool { return true }
 
 // Dial is the function for creating a secure
 // communication connection.
-func Dial(network, addr string, config *Config) (*net.Conn, error) {
+func Dial(network, addr string, config *Config) (*SecureConn, error) {
 	return DialWithDialer(new(net.Dialer), network, addr, config)
 }
 
 // DialWithDialer is the function for creating a secure
 // communication connection with the given dialer.
-func DialWithDialer(dialer *net.Dialer, network, addr string, config *Config) (*net.Conn, error) {
-	return DialWithDialer(new(net.Dialer), network, addr, config)
+func DialWithDialer(dialer *net.Dialer, network, addr string, config *Config) (*SecureConn, error) {
+	return dial(context.Background(), dialer, network, addr, config)
 }
 
 func dial(ctx context.Context, netDialer *net.Dialer, network, addr string, config *Config) (*SecureConn, error) {
@@ -193,10 +190,11 @@ func dial(ctx context.Context, netDialer *net.Dialer, network, addr string, conf
 		colonPos = len(addr)
 	}
 	if config == nil {
-		config = defaultConfig()
+		return nil, errors.New("Config is nil")
 	}
 
-	conn := Client(rawConn, config)
+	//TODO: check if correctly casted
+	conn := Client(rawConn.(*net.TCPConn), config)
 	if hsErrCh == nil {
 		err = conn.Handshake()
 	} else {
@@ -233,7 +231,7 @@ func (l *SecureListener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return SecureServer(c), nil
+	return SecureServer(c, l.config), nil
 }
 
 // Close closes the listener.
