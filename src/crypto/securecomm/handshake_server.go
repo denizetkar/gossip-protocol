@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"errors"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/sha3"
@@ -44,6 +45,7 @@ func (hs *serverHandshakeState) handshake() error {
 		return err
 	}
 	hs.c.masterKey = hs.masterSecret
+	atomic.StoreInt32(&hs.c.handShakeCompleted, 1)
 	return nil
 }
 
