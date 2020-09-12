@@ -5,6 +5,8 @@ package securecomm
 import (
 	"context"
 	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/gob"
@@ -278,13 +280,24 @@ func (sc *SecureConn) Read(b []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	cipher, err := aes.NewCipher(sc.masterKey[:32])
+	block, err := aes.NewCipher(sc.masterKey[:32])
 	if err != nil {
 		return 0, err
 	}
-	data := make([]byte, len(encM.Data))
-	cipher.Decrypt(data, encM.Data)
-	copy(b, data)
+	aesGCM, err := cipher.NewGCM(block)
+	if err != nil {
+		return 0, err
+	}
+
+	// Extract nonce from the data
+	nonceSize := aesGCM.NonceSize()
+	nonce, ciphertext := encM.Data[:nonceSize], encM.Data[nonceSize:]
+
+	plaintext, err := aesGCM.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return 0, err
+	}
+	copy(b, plaintext)
 
 	return len(encM.Data), nil
 }
@@ -294,12 +307,21 @@ func (sc *SecureConn) Write(b []byte) (int, error) {
 	if err := sc.Handshake(); err != nil {
 		return 0, err
 	}
-	cipher, err := aes.NewCipher(sc.masterKey[:32])
+	block, err := aes.NewCipher(sc.masterKey[:32])
 	if err != nil {
 		return 0, err
 	}
-	encB := make([]byte, len(b))
-	cipher.Encrypt(encB, b)
+	aesGCM, err := cipher.NewGCM(block)
+	if err != nil {
+		return 0, err
+	}
+	//Create a nonce to be used with GCM
+	nonce := make([]byte, aesGCM.NonceSize())
+	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
+		panic(err.Error())
+	}
+	// Add nonce as a prefix to the ciphertext
+	encB := aesGCM.Seal(nonce, nonce, b, nil)
 	m := &Message{
 		Data: encB}
 	err = sc.write(m)
