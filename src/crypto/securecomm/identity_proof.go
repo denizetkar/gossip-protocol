@@ -20,7 +20,7 @@ const (
 	ScryptP          = 1
 	ScryptHashlength = 128
 	ScryptNonceSize  = 64
-	ScryptRepetion   = 200
+	ScryptRepetition = 200
 )
 
 // KeyManagement manages own keys related to DH exchange
@@ -72,7 +72,7 @@ func checkProofOfWorkValidity(k int, h *Handshake) error {
 	if err != nil {
 		return err
 	}
-	threshold := PoWThreshold(ScryptRepetion, ScryptHashlength*8)
+	threshold := PoWThreshold(ScryptRepetition, ScryptHashlength*8)
 
 	if hashVal.Cmp(threshold) <= 0 {
 		return nil
@@ -93,12 +93,12 @@ func PoWThreshold(repetition, bits uint64) *big.Int {
 // ProofOfWork tries to find right nonce to have k leading zeros
 func ProofOfWork(k int, h *Handshake) error {
 	// Threshold that must not be crossed to have a valid nonce
-	threshold := PoWThreshold(ScryptRepetion, ScryptHashlength*8)
+	threshold := PoWThreshold(ScryptRepetition, ScryptHashlength*8)
 	h.Nonce = make([]byte, ScryptNonceSize)
 	rand.Read(h.Nonce)
 	// https://wizardforcel.gitbooks.io/practical-cryptography-for-developers-book/content/mac-and-key-derivation/scrypt.html
 	// Memory required = 128 * N * r * p bytes
-	for i := 0; i < 2*ScryptRepetion; i++ {
+	for i := 0; i < 2*ScryptRepetition; i++ {
 		hashVal, err := h.hashVal()
 		if err != nil {
 			return err
