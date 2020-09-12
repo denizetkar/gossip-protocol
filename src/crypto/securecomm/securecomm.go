@@ -3,13 +3,21 @@
 package securecomm
 
 import (
+	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/gob"
 	"encoding/pem"
+	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,20 +30,50 @@ type Config struct {
 	TrustedIdentitiesPath string
 	// HostKey is the variable containing 4096-bit RSA key.
 	HostKey *rsa.PrivateKey
-	// TODO: fill here
+	// Number of zeros necessary in Proof Of Work hash
+	k int
+	// CacheSize is needed to calculate maximum message size
+	cacheSize int64
 }
 
 // SecureListener is the secure communication listener.
 type SecureListener struct {
-	// TODO: fill here
 	ln     net.TCPListener
 	config *Config
+	// Receives quit signal
+	quit chan interface{}
+	// Used for waiting for goroutines to finish
+	wg sync.WaitGroup
 }
 
-// SecureConn is the secure communication connection.
-type SecureConn struct {
-	// TODO: fill here
-	conn net.TCPConn
+// Client returns a new secure client side connection
+// using conn as the underlying transport.
+// The config cannot be nil: users must set either ServerName or
+// InsecureSkipVerify in the config.
+func Client(conn *net.TCPConn, config *Config) *SecureConn {
+	c := &SecureConn{
+		conn:     conn,
+		config:   config,
+		isClient: true,
+		input:    gob.NewDecoder(io.LimitReader(conn, 65580*config.cacheSize)),
+		output:   gob.NewEncoder(io.Writer(conn)),
+	}
+	c.handshakeFn = c.clientHandshake
+	return c
+}
+
+// SecureServer returns a new secure server side connection
+// using TCPConn as the underlying transport.
+func SecureServer(conn *net.TCPConn, config *Config) *SecureConn {
+	c := &SecureConn{
+		conn:     conn,
+		config:   config,
+		isClient: false,
+		input:    gob.NewDecoder(io.LimitReader(conn, 65580*config.cacheSize)),
+		output:   gob.NewEncoder(io.Writer(conn)),
+	}
+	c.handshakeFn = c.serverHandshake
+	return c
 }
 
 // NewConfig is the constructor method for Config struct.
@@ -80,48 +118,144 @@ func NewConfig(trustedIdentitiesPath, hostKeyPath, pubKeyPath string) (*Config, 
 	}
 
 	privateKey.PublicKey = *pubKey
-	return &Config{TrustedIdentitiesPath: trustedIdentitiesPath, HostKey: privateKey}, nil
-}
 
-// NewListener is the constructor function of SecureListener.
-func NewListener() *SecureListener {
-	// TODO: fill here
-	return nil
+	// Hard code k for proof of work
+	k := 12
+	return &Config{TrustedIdentitiesPath: trustedIdentitiesPath, HostKey: privateKey, k: k}, nil
 }
 
 // Listen is the function for creating a secure
 // communication listener.
-func Listen(network, laddr string, config *Config) (*SecureListener, error) {
-	// TODO: fill here
-	return nil, nil
+func Listen(network string, laddr *net.TCPAddr, config *Config) (net.Listener, error) {
+	// Constructs a TCPListener
+	ln, err := net.ListenTCP(network, laddr)
+	if err != nil {
+		return nil, err
+	}
+	return NewListener(ln, config), nil
 }
+
+// NewListener is the constructor function of SecureListener.
+func NewListener(inner *net.TCPListener, config *Config) *SecureListener {
+	sl := &SecureListener{
+		ln:     *inner,
+		config: config,
+		quit:   make(chan interface{}),
+	}
+	return sl
+}
+
+type timeoutError struct{}
+type configError struct{}
+
+func (configError) Error() string { return "no config specified" }
+
+func (timeoutError) Error() string   { return "tls: DialWithDialer timed out" }
+func (timeoutError) Timeout() bool   { return true }
+func (timeoutError) Temporary() bool { return true }
 
 // Dial is the function for creating a secure
 // communication connection.
 func Dial(network, addr string, config *Config) (*SecureConn, error) {
-	// TODO: fill here
-	return nil, nil
+	return DialWithDialer(new(net.Dialer), network, addr, config)
 }
 
 // DialWithDialer is the function for creating a secure
 // communication connection with the given dialer.
 func DialWithDialer(dialer *net.Dialer, network, addr string, config *Config) (*SecureConn, error) {
-	// TODO: fill here
-	return nil, nil
+	return dial(context.Background(), dialer, network, addr, config)
+}
+
+func dial(ctx context.Context, netDialer *net.Dialer, network, addr string, config *Config) (*SecureConn, error) {
+	// We want the Timeout and Deadline values from dialer to cover the
+	// whole process: TCP connection and TLS handshake. This means that we
+	// also need to start our own timers now.
+	timeout := netDialer.Timeout
+	if !netDialer.Deadline.IsZero() {
+		deadlineTimeout := time.Until(netDialer.Deadline)
+		if timeout == 0 || deadlineTimeout < timeout {
+			timeout = deadlineTimeout
+		}
+	}
+
+	// hsErrCh is non-nil if we might not wait for Handshake to complete.
+	var hsErrCh chan error
+	if timeout != 0 || ctx.Done() != nil {
+		hsErrCh = make(chan error, 2)
+	}
+	if timeout != 0 {
+		timer := time.AfterFunc(timeout, func() {
+			hsErrCh <- timeoutError{}
+		})
+		defer timer.Stop()
+	}
+	rawConn, err := netDialer.DialContext(ctx, network, addr)
+	if err != nil {
+		return nil, err
+	}
+
+	colonPos := strings.LastIndex(addr, ":")
+	if colonPos == -1 {
+		colonPos = len(addr)
+	}
+	if config == nil {
+		return nil, errors.New("Config is nil")
+	}
+
+	//TODO: check if correctly casted
+	conn := Client(rawConn.(*net.TCPConn), config)
+	if hsErrCh == nil {
+		err = conn.Handshake()
+	} else {
+		go func() {
+			hsErrCh <- conn.Handshake()
+		}()
+
+		select {
+		case <-ctx.Done():
+			err = ctx.Err()
+		case err = <-hsErrCh:
+			if err != nil {
+				// If the error was due to the context
+				// closing, prefer the context's error, rather
+				// than some random network teardown error.
+				if e := ctx.Err(); e != nil {
+					err = e
+				}
+			}
+		}
+	}
+	if err != nil {
+		rawConn.Close()
+		return nil, err
+	}
+
+	return conn, nil
 }
 
 // Accept waits for and returns the next incoming secure connection.
 // The returned connection is of type *SecureConn.
 func (l *SecureListener) Accept() (net.Conn, error) {
-	// TODO: fill here
-	return nil, nil
+	c, err := l.ln.AcceptTCP()
+	if err != nil {
+		select {
+		case <-l.quit:
+			return nil, nil
+		default:
+			return nil, err
+		}
+	}
+	return SecureServer(c, l.config), nil
 }
 
 // Close closes the listener.
 // Any blocked Accept operations will be unblocked and return errors.
 func (l *SecureListener) Close() error {
-	// TODO: fill here
-	return nil
+	//https://eli.thegreenplace.net/2020/graceful-shutdown-of-a-tcp-server-in-go/
+	close(l.quit)
+	err := l.ln.Close()
+	l.wg.Wait()
+	return err
 }
 
 // Addr returns the listener's network address, a *TCPAddr.
@@ -134,20 +268,74 @@ func (l *SecureListener) Addr() net.Addr {
 // Read can be made to time out and return a net.Error with Timeout() == true
 // after a fixed time limit; see SetDeadline and SetReadDeadline.
 func (sc *SecureConn) Read(b []byte) (int, error) {
-	// TODO: fill here
-	return 0, nil
+	if err := sc.Handshake(); err != nil {
+		return 0, err
+	}
+	if len(b) == 0 {
+		// Put this after Handshake, in case people were calling
+		// Read(nil) for the side effect of the Handshake.
+		return 0, nil
+	}
+	encM, err := sc.read()
+	if err != nil {
+		return 0, err
+	}
+	block, err := aes.NewCipher(sc.masterKey[:32])
+	if err != nil {
+		return 0, err
+	}
+	aesGCM, err := cipher.NewGCM(block)
+	if err != nil {
+		return 0, err
+	}
+
+	// Extract nonce from the data
+	nonceSize := aesGCM.NonceSize()
+	nonce, ciphertext := encM.Data[:nonceSize], encM.Data[nonceSize:]
+
+	plaintext, err := aesGCM.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return 0, err
+	}
+	copy(b, plaintext)
+
+	return len(plaintext), nil
 }
 
 // Write writes data to the connection.
 func (sc *SecureConn) Write(b []byte) (int, error) {
-	// TODO: fill here
-	return 0, nil
+	if err := sc.Handshake(); err != nil {
+		return 0, err
+	}
+	block, err := aes.NewCipher(sc.masterKey[:32])
+	if err != nil {
+		return 0, err
+	}
+	aesGCM, err := cipher.NewGCM(block)
+	if err != nil {
+		return 0, err
+	}
+	//Create a nonce to be used with GCM
+	nonce := make([]byte, aesGCM.NonceSize())
+	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
+		panic(err.Error())
+	}
+	// Add nonce as a prefix to the ciphertext
+	encB := aesGCM.Seal(nonce, nonce, b, nil)
+	m := &Message{
+		Data: encB}
+	err = sc.write(m)
+	if err != nil {
+		return 0, err
+	}
+	return len(b), nil
 }
 
 // Close closes the secure connection properly.
 func (sc *SecureConn) Close() error {
+	err := sc.conn.Close()
 	// TODO: fill here
-	return nil
+	return err
 }
 
 // LocalAddr returns the local network address.
