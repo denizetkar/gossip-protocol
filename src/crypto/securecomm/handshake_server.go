@@ -70,7 +70,7 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 	if err != nil {
 		return err
 	}
-	err = rsa.VerifyPKCS1v15(&hs.mClient.RSAPub, crypto.SHA3_256, hs.mClient.concatIdentifiersInclNonce(), hs.mClient.RSASig)
+	err = rsa.VerifyPSS(&hs.mClient.RSAPub, crypto.SHA3_256, hs.mClient.concatIdentifiersInclNonce(), hs.mClient.RSASig, nill)
 	if err != nil {
 		return err
 	}
