@@ -28,10 +28,6 @@ type SecureConn struct {
 
 	// Master Key which encrypts and decrypts communication between two peers
 	masterKey []byte
-
-	// Mutex for access to the communication input/outputs
-	in  sync.Mutex
-	out sync.Mutex
 }
 
 // Message that is serialized and should be send or received
@@ -91,8 +87,6 @@ func (messageError) Error() string { return "securecomm: Message format is incor
 
 // Write a Message directly, should be used only internally
 func (c *SecureConn) write(data *Message) error {
-	c.out.Lock()
-	defer c.out.Unlock()
 	if !(data.Data != nil || !data.Handshake.isValid()) {
 		return messageError{}
 	}
@@ -102,8 +96,6 @@ func (c *SecureConn) write(data *Message) error {
 
 // Read a Message directly, should be used only internally
 func (c *SecureConn) read() (data *Message, err error) {
-	c.in.Lock()
-	defer c.in.Unlock()
 	err = c.input.Decode(data)
 	return data, err
 }
