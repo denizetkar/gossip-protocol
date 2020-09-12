@@ -33,7 +33,7 @@ type Config struct {
 	// Number of zeros necessary in Proof Of Work hash
 	k int
 	// CacheSize is needed to calculate maximum message size
-	cacheSize int64
+	cacheSize int16
 }
 
 // SecureListener is the secure communication listener.
@@ -55,7 +55,7 @@ func Client(conn *net.TCPConn, config *Config) *SecureConn {
 		conn:     conn,
 		config:   config,
 		isClient: true,
-		input:    gob.NewDecoder(io.LimitReader(conn, 65580*config.cacheSize)),
+		input:    gob.NewDecoder(io.LimitReader(conn, 65580*int64(config.cacheSize))),
 		output:   gob.NewEncoder(io.Writer(conn)),
 	}
 	c.handshakeFn = c.clientHandshake
@@ -69,7 +69,7 @@ func SecureServer(conn *net.TCPConn, config *Config) *SecureConn {
 		conn:     conn,
 		config:   config,
 		isClient: false,
-		input:    gob.NewDecoder(io.LimitReader(conn, 65580*config.cacheSize)),
+		input:    gob.NewDecoder(io.LimitReader(conn, 65580*int64(config.cacheSize))),
 		output:   gob.NewEncoder(io.Writer(conn)),
 	}
 	c.handshakeFn = c.serverHandshake
@@ -77,7 +77,7 @@ func SecureServer(conn *net.TCPConn, config *Config) *SecureConn {
 }
 
 // NewConfig is the constructor method for Config struct.
-func NewConfig(trustedIdentitiesPath, hostKeyPath, pubKeyPath string) (*Config, error) {
+func NewConfig(trustedIdentitiesPath, hostKeyPath, pubKeyPath string, cacheSize int16) (*Config, error) {
 	// Read and load the RSA private key.
 	priv, err := ioutil.ReadFile(hostKeyPath)
 	if err != nil {
@@ -121,7 +121,7 @@ func NewConfig(trustedIdentitiesPath, hostKeyPath, pubKeyPath string) (*Config, 
 
 	// Hard code k for proof of work
 	k := 12
-	return &Config{TrustedIdentitiesPath: trustedIdentitiesPath, HostKey: privateKey, k: k}, nil
+	return &Config{TrustedIdentitiesPath: trustedIdentitiesPath, HostKey: privateKey, k: k, cacheSize: cacheSize}, nil
 }
 
 // Listen is the function for creating a secure

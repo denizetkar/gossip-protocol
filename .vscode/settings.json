@@ -1,4 +1,6 @@
 {
     "go.inferGopath": false,
-    "files.eol": "\n"
+    "files.eol": "\n",
+    "go.lintTool": "golint",
+    "go.formatTool": "goimports"
 }
