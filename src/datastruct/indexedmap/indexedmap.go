@@ -1,3 +1,7 @@
+// Package indexedmap contains an implementation of a hash table
+// that is indexable with O(1) complexity. Indexing happens on the
+// keys of the hash table and the order of addition is not necessarily
+// preserved in the key list.
 package indexedmap
 
 import "fmt"

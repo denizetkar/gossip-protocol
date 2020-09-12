@@ -1,3 +1,5 @@
+// Package identity contains an implementation for parsing
+// trusted identities out of a given folder path.
 package identity
 
 import (
@@ -6,6 +8,8 @@ import (
 	"regexp"
 )
 
+// Parse method extracts the identity of every trusted peer
+// out of a given folder path.
 func Parse(path string) (identities []string) {
 	files, err := ioutil.ReadDir(path)
 	if err != nil {

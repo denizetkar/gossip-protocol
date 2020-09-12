@@ -1,3 +1,4 @@
+// Package ini contains an implementation of '.ini' config file parser.
 package ini
 
 import (

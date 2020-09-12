@@ -1,3 +1,4 @@
+// Package set contains an implementation of a set data structure.
 package set
 
 // AnyType is a placeholder for any type in Go language.

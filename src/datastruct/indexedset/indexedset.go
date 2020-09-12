@@ -1,3 +1,7 @@
+// Package indexedset contains an implementation of a set that is
+// indexable with O(1) complexity. Indexing happens on the elements
+// of the set and the order of addition is not necessarily preserved
+// in the element list.
 package indexedset
 
 // AnyType is a placeholder for any type in Go language.
