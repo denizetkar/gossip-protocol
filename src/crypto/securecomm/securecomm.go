@@ -33,7 +33,7 @@ type Config struct {
 	// Number of zeros necessary in Proof Of Work hash
 	k int
 	// CacheSize is needed to calculate maximum message size
-	cacheSize int16
+	cacheSize uint16
 }
 
 // SecureListener is the secure communication listener.
@@ -77,7 +77,7 @@ func SecureServer(conn *net.TCPConn, config *Config) *SecureConn {
 }
 
 // NewConfig is the constructor method for Config struct.
-func NewConfig(trustedIdentitiesPath, hostKeyPath, pubKeyPath string, cacheSize int16) (*Config, error) {
+func NewConfig(trustedIdentitiesPath, hostKeyPath, pubKeyPath string, cacheSize uint16) (*Config, error) {
 	// Read and load the RSA private key.
 	priv, err := ioutil.ReadFile(hostKeyPath)
 	if err != nil {
