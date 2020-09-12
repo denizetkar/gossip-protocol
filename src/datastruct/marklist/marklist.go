@@ -1,3 +1,5 @@
+// Package marklist implements an array structure where elements
+// up to a certain index are 'marked' and the rest are 'unmarked'.
 package marklist
 
 import "fmt"
