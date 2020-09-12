@@ -328,7 +328,7 @@ func (sc *SecureConn) Write(b []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return len(b), nil
+	return len(encB), nil
 }
 
 // Close closes the secure connection properly.
