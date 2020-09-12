@@ -67,7 +67,7 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 
 	// Sign message
 	shaM := sha3.Sum256(handshake.concatIdentifiersInclNonce())
-	s, err := privKey.Sign(rand.Reader, shaM[:], crypto.SHA3_256)
+	s, err := rsa.SignPSS(rand.Reader, privKey, crypto.SHA3_256, shaM[:], nil)
 	if err != nil {
 		return err
 	}
