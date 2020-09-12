@@ -299,7 +299,7 @@ func (sc *SecureConn) Read(b []byte) (int, error) {
 	}
 	copy(b, plaintext)
 
-	return len(encM.Data), nil
+	return len(plaintext), nil
 }
 
 // Write writes data to the connection.
@@ -328,7 +328,7 @@ func (sc *SecureConn) Write(b []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return len(encB), nil
+	return len(b), nil
 }
 
 // Close closes the secure connection properly.
