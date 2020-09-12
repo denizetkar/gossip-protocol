@@ -104,17 +104,17 @@ type P2PListener struct {
 func NewP2PListener(
 	p2pAddr string, outQ chan InternalMessage, config *securecomm.Config,
 ) (*P2PListener, error) {
-	_, err := net.ResolveTCPAddr("tcp", p2pAddr)
+	lAddr, err := net.ResolveTCPAddr("tcp", p2pAddr)
 	if err != nil {
 		return nil, err
 	}
-	ln, err := securecomm.Listen("tcp", p2pAddr, config)
+	ln, err := securecomm.Listen("tcp", lAddr, config)
 	if err != nil {
 		return nil, err
 	}
 
 	return &P2PListener{
-		ln:          ln,
+		ln:          ln.(*securecomm.SecureListener),
 		MsgOutQueue: outQ,
 		sigCh:       make(chan struct{}),
 	}, nil

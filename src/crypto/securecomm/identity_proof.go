@@ -5,9 +5,9 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"errors"
+	"gossip/src/parser/identity"
 	"math/big"
 	"math/rand"
-	"parser/identity"
 
 	"github.com/monnand/dhkx"
 	"golang.org/x/crypto/scrypt"
