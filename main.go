@@ -95,6 +95,7 @@ func main() {
 	// Take config file path as a command line argument.
 	defaultConfigPath := filepath.Join(gossipWorkspacePath, "config", "config.ini")
 	configPath := flag.String("config_path", defaultConfigPath, "a file path string for the configuration")
+	flag.Parse()
 	// Create a central controller and run it.
 	centralController, err := newCentralControllerFromConfigFile(*configPath)
 	if err != nil {
