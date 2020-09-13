@@ -1,3 +1,7 @@
+// Package core is the package containing implementations of all 7 submodules
+// of the gossip module. These 7 submodules are: Central controller, Membership
+// controller, Gossiper, API listener, P2P listener, API endpoint and P2P
+// endpoint.
 package core
 
 import (
