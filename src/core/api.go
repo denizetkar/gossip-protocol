@@ -123,7 +123,7 @@ func (apiListener *APIListener) listenerRoutine() {
 			switch {
 			case <-apiListener.sigCh:
 				done = true
-				return
+				continue
 			default:
 				break
 			}
