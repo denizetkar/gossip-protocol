@@ -132,6 +132,20 @@ const (
 	// APIEndpointCreatedMSG is a notification from the api listener to the
 	// Central controller that it created an api endpoint.
 	APIEndpointCreatedMSG
+	// APIAnnounceMSG is a command from an APIEndpoint to
+	// the Central controller to spread the information provided in the payload.
+	APIAnnounceMSG
+	// APINotifyMSG is a command from an APIEndpoint to
+	// the Central controller to register the corresponding API client for notifications
+	// about the given gossip data types.
+	APINotifyMSG
+	// APINotificationMSG is a command from the Central Controller to
+	// an APIEndpoint to notify the corresponding API client upon
+	// receiving a gossip of given data type.
+	APINotificationMSG
+	// APIValidationMSG is a notification from an APIEndpoint to
+	// the Central controller for an incoming GOSSIP VALIDATION api call.
+	APIValidationMSG
 )
 
 const (
@@ -141,6 +155,12 @@ const (
 	// APIEndpointClosedMSG is a notification from the api endpoint to
 	// the Central controller for closing gracefully as requested.
 	APIEndpointClosedMSG
+	// APIEndpointCloseMSG is a notification from an api endpoint to itself
+	// for closing the writer gracefully.
+	APIEndpointCloseMSG
+	// IncomingAPIMSG is a notification from an api endpoint to the
+	// Central controller that it received a message from a client.
+	IncomingAPIMSG
 )
 
 const (
@@ -162,6 +182,12 @@ const (
 	// P2PEndpointClosedMSG is a notification from the p2p endpoint to
 	// the Central controller for closing gracefully as requested.
 	P2PEndpointClosedMSG
+	// P2PEndpointCloseMSG is a notification from a p2p endpoint to
+	// itself for closing the writer gracefully as requested.
+	P2PEndpointCloseMSG
+	// IncomingP2PMSG is a notification from an p2p endpoint to the
+	// Central controller that it received a message from a peer.
+	IncomingP2PMSG
 )
 
 // TODO: Add more message types for the following submodules:

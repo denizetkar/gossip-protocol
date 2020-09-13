@@ -49,6 +49,10 @@ type Handshake struct {
 }
 
 func (h *Handshake) isValid() bool {
+	if h.Time.Add(HandshakeExpirationTime).Before(time.Now().UTC()) {
+		return false
+	}
+
 	return len(h.DHPub) == 256 &&
 		h.RSAPub.Size() == 512 &&
 		!h.Time.IsZero() &&

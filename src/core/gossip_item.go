@@ -5,17 +5,6 @@ package core
 // described in the specifications.pdf .
 type GossipItemDataType uint16
 
-const (
-	// GossipAnnounce is the enumeration of 'GOSSIP ANNOUNCE' api message
-	GossipAnnounce GossipItemDataType = iota + 500
-	// GossipNotify is the enumeration of 'GOSSIP NOTIFY' api message
-	GossipNotify
-	// GossipNotification is the enumeration of 'GOSSIP NOTIFICATION' api message
-	GossipNotification
-	// GossipValidation is the enumeration of 'GOSSIP VALIDATION' api message
-	GossipValidation
-)
-
 // GossipItem holds the Gossip item coming from
 // a "GOSSIP ANNOUCE" api call.
 type GossipItem struct {

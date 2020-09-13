@@ -3,7 +3,7 @@ package core
 import (
 	"fmt"
 	"gossip/src/datastruct/set"
-	"gossip/src/mathutils"
+	mathutils "gossip/src/utils/math"
 	"math"
 	"time"
 )

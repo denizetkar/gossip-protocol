@@ -1,7 +1,7 @@
-// Package mathutils is a convenience package containing
+// Package math is a convenience package containing
 // some commonly needed mathematical functions that are not
 // part of the Go language standard libraries.
-package mathutils
+package math
 
 // Min returns the minimum of x and y, preferring x.
 func Min(x, y int) int {

@@ -9,13 +9,13 @@ import (
 	"gossip/src/crypto/securecomm"
 	"gossip/src/datastruct/indexedmap"
 	"gossip/src/datastruct/set"
+	"gossip/src/utils"
 	"log"
 	"math"
 	mrand "math/rand"
 	"net"
 	"os"
 	"os/signal"
-	"strings"
 	"time"
 )
 
@@ -30,10 +30,14 @@ func init() {
 	centralControllerHandlers[PeerAddMSG] = (*CentralController).peerAddHandler
 	centralControllerHandlers[PeerRemoveMSG] = (*CentralController).peerRemoveHandler
 	centralControllerHandlers[ProbePeerRequestMSG] = (*CentralController).probePeerRequestHandler
+	centralControllerHandlers[MembershipPushRequestMSG] = (*CentralController).membershipPushRequestHandler
+	centralControllerHandlers[MembershipPullRequestMSG] = (*CentralController).membershipPullRequestHandler
+	centralControllerHandlers[MembershipPullReplyMSG] = (*CentralController).membershipPullReplyHandler
 	centralControllerHandlers[MembershipCrashedMSG] = (*CentralController).membershipCrashedHandler
 	centralControllerHandlers[MembershipClosedMSG] = (*CentralController).membershipClosedHandler
 	centralControllerHandlers[RandomPeerListRequestMSG] = (*CentralController).randomPeerListRequestHandler
 	centralControllerHandlers[RandomPeerListReleaseMSG] = (*CentralController).randomPeerListReleaseHandler
+	centralControllerHandlers[GossipNotificationMSG] = (*CentralController).gossipNotificationHandler
 	centralControllerHandlers[GossiperCrashedMSG] = (*CentralController).gossiperCrashedHandler
 	centralControllerHandlers[GossiperClosedMSG] = (*CentralController).gossiperClosedHandler
 	centralControllerHandlers[APIListenerCrashedMSG] = (*CentralController).apiEndpointCrashedHandler
@@ -50,6 +54,9 @@ func init() {
 	centralControllerHandlers[CentralProbePeerReplyMSG] = (*CentralController).centralProbePeerReplyHandler
 	centralControllerHandlers[CentralCrashMSG] = (*CentralController).crashHandler
 	centralControllerHandlers[CentralCloseMSG] = (*CentralController).closeHandler
+	centralControllerHandlers[IncomingAPIMSG] = (*CentralController).incomingAPIHandler
+	centralControllerHandlers[IncomingP2PMSG] = (*CentralController).incomingP2PHandler
+
 	// Create a set of valid event types while the Central controller is stopping.
 	centralControllerStopMessages = set.New().Add(PeerRemoveMSG).
 		Add(MembershipCrashedMSG).Add(MembershipClosedMSG).
@@ -59,19 +66,6 @@ func init() {
 		Add(P2PListenerCrashedMSG).Add(P2PListenerClosedMSG).Add(IncomingP2PCreatedMSG).
 		Add(P2PEndpointCrashedMSG).Add(P2PEndpointClosedMSG).
 		Add(OutgoingP2PCreatedMSG).Add(CentralCrashMSG)
-}
-
-// GetOutboundIP attempts to find the public IP of the
-// outgoing TCP or UDP connections.
-func GetOutboundIP() (string, error) {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		return "", err
-	}
-	defer conn.Close()
-	localAddr := conn.LocalAddr().String()
-	idx := strings.LastIndex(localAddr, ":")
-	return localAddr[0:idx], nil
 }
 
 // CentralControllerState is a struct type for describing not only the state
@@ -159,6 +153,7 @@ const (
 	gossipRoundDuration     = 500 * time.Millisecond
 	connectionTimeout       = 2 * time.Second
 	closureTimeout          = 6 * time.Second
+	closureCheckTimeout     = 500 * time.Millisecond
 )
 
 // NewCentralController is a constructor function for the centralController class.
@@ -190,7 +185,7 @@ func NewCentralController(
 		return nil, err
 	}
 	// Get the outbound ip address for TCP/UDP connections.
-	ipAddr, err := GetOutboundIP()
+	ipAddr, err := utils.GetOutboundIP()
 	if err != nil {
 		return nil, err
 	}
@@ -406,6 +401,90 @@ func (centralController *CentralController) probePeerRequestHandler(payload AnyM
 	return nil
 }
 
+// membershipPushRequestHandler  is the method called by the Run method for when
+// it receives an internal message of type MembershipPushRequestMSG.
+func (centralController *CentralController) membershipPushRequestHandler(payload AnyMessage) error {
+	pr, ok := payload.(MembershipPushRequestMSGPayload)
+	if !ok {
+		return nil
+	}
+	var info *PeerInfoCentral
+	// Check if the peer to be sent is either in the view list or
+	// in the awaiting removal view list.
+	if centralController.viewList.IsMember(pr.To) {
+		value := centralController.viewList.GetValue(pr.To)
+		info = value.(*PeerInfoCentral)
+	} else if _info, isMember := centralController.awaitingRemovalViewList[pr.To]; isMember {
+		info = _info
+	} else {
+		return nil
+	}
+	// Check if the writer goroutine is running.
+	if info.state.writerState != PeerWriterRUNNING {
+		return nil
+	}
+	// Send the internal message to the p2p endpoint.
+	info.endpoint.MsgInQueue <- InternalMessage{Type: MembershipPushRequestMSG, Payload: payload}
+
+	return nil
+}
+
+// membershipPullRequestHandler  is the method called by the Run method for when
+// it receives an internal message of type MembershipPullRequestMSG.
+func (centralController *CentralController) membershipPullRequestHandler(payload AnyMessage) error {
+	peer, ok := payload.(Peer)
+	if !ok {
+		return nil
+	}
+	var info *PeerInfoCentral
+	// Check if the peer to be sent is either in the view list or
+	// in the awaiting removal view list.
+	if centralController.viewList.IsMember(peer) {
+		value := centralController.viewList.GetValue(peer)
+		info = value.(*PeerInfoCentral)
+	} else if _info, isMember := centralController.awaitingRemovalViewList[peer]; isMember {
+		info = _info
+	} else {
+		return nil
+	}
+	// Check if the writer goroutine is running.
+	if info.state.writerState != PeerWriterRUNNING {
+		return nil
+	}
+	// Send the internal message to the p2p endpoint.
+	info.endpoint.MsgInQueue <- InternalMessage{Type: MembershipPullRequestMSG, Payload: peer}
+
+	return nil
+}
+
+// membershipPullReplyHandler  is the method called by the Run method for when
+// it receives an internal message of type MembershipPullReplyMSG.
+func (centralController *CentralController) membershipPullReplyHandler(payload AnyMessage) error {
+	pr, ok := payload.(MembershipPullReplyMSGPayload)
+	if !ok {
+		return nil
+	}
+	var info *PeerInfoCentral
+	// Check if the peer to be sent is either in the view list or
+	// in the awaiting removal view list.
+	if centralController.viewList.IsMember(pr.To) {
+		value := centralController.viewList.GetValue(pr.To)
+		info = value.(*PeerInfoCentral)
+	} else if _info, isMember := centralController.awaitingRemovalViewList[pr.To]; isMember {
+		info = _info
+	} else {
+		return nil
+	}
+	// Check if the writer goroutine is running.
+	if info.state.writerState != PeerWriterRUNNING {
+		return nil
+	}
+	// Send the internal message to the p2p endpoint.
+	info.endpoint.MsgInQueue <- InternalMessage{Type: MembershipPullReplyMSG, Payload: payload}
+
+	return nil
+}
+
 // membershipCrashedHandler is the method called by the Run method for when
 // it receives an internal message of type MembershipCrashedMSG.
 func (centralController *CentralController) membershipCrashedHandler(payload AnyMessage) error {
@@ -504,6 +583,31 @@ func (centralController *CentralController) randomPeerListReleaseHandler(payload
 			// Log this unexpected event.
 			log.Println("Outgoing P2P endpoint", peer.Addr, "was deleted before (usageCounter <= 0).")
 		}
+	}
+
+	return nil
+}
+
+// gossipNotificationHandler is the method called by the Run method for when
+// it receives an internal message of type GossipNotificationMSG.
+func (centralController *CentralController) gossipNotificationHandler(payload AnyMessage) error {
+	msg, ok := payload.(GossipNotificationMSGPayload)
+	if !ok {
+		return nil
+	}
+	// Check if the api client to send the message exists.
+	info, isMember := centralController.apiClients[msg.Who]
+	if !isMember {
+		return nil
+	}
+	// Check if the writer goroutine is running.
+	if info.state.writerState != APIClientWriterRUNNING {
+		return nil
+	}
+	// Send the internal message to the api endpoint.
+	info.endpoint.MsgInQueue <- InternalMessage{
+		Type:    APINotificationMSG,
+		Payload: APINotificationMSGPayload{Who: msg.Who, Item: msg.Item, ID: msg.ID},
 	}
 
 	return nil
@@ -1005,6 +1109,67 @@ func (centralController *CentralController) centralProbePeerReplyHandler(payload
 	return nil
 }
 
+// incomingAPIHandler is the method called by the Run method for when
+// it receives an internal message of type IncomingAPIMSG.
+func (centralController *CentralController) incomingAPIHandler(message AnyMessage) error {
+	im, ok := message.(InternalMessage)
+	if !ok {
+		return nil
+	}
+	switch im.Type {
+	case GossipAnnounceMSG:
+		_, ok := im.Payload.(GossipAnnounceMSGPayload)
+		if !ok {
+			return nil
+		}
+		centralController.gossiper.MsgInQueue <- im
+	case GossipNotifyMSG:
+		_, ok := im.Payload.(GossipNotifyMSGPayload)
+		if !ok {
+			return nil
+		}
+		centralController.gossiper.MsgInQueue <- im
+	case GossipValidationMSG:
+		_, ok := im.Payload.(GossipValidationMSGPayload)
+		if !ok {
+			return nil
+		}
+		centralController.gossiper.MsgInQueue <- im
+	default:
+		log.Println("unexpected incoming API message of type", im.Type)
+		break
+	}
+
+	return nil
+}
+
+// incomingP2PHandler is the method called for when
+// another peer sent a message.
+func (centralController *CentralController) incomingP2PHandler(message AnyMessage) error {
+	im := message.(InternalMessage)
+	switch im.Type {
+	case MembershipIncomingPushRequestMSG:
+		centralController.membershipController.MsgInQueue <- im
+	case MembershipIncomingPullRequestMSG:
+		centralController.membershipController.MsgInQueue <- im
+	case MembershipIncomingPullReplyMSG:
+		centralController.membershipController.MsgInQueue <- im
+	case GossipIncomingPushMSG:
+		centralController.gossiper.MsgInQueue <- im
+	case GossipIncomingPullRequestMSG:
+		centralController.gossiper.MsgInQueue <- im
+	case GossipIncomingPullReplyMSG:
+		centralController.gossiper.MsgInQueue <- im
+	case GossipAnnounceMSG:
+		centralController.gossiper.MsgInQueue <- im
+	case GossipNotifyMSG:
+		centralController.gossiper.MsgInQueue <- im
+	case GossipValidationMSG:
+		centralController.gossiper.MsgInQueue <- im
+	}
+	return nil
+}
+
 // crashHandler is the method called by the Run method for when
 // it receives an internal message of type CentralCrashMSG.
 func (centralController *CentralController) crashHandler(payload AnyMessage) error {
@@ -1070,13 +1235,13 @@ func (centralController *CentralController) Run() {
 		centralController.MsgInQueue <- InternalMessage{Type: CentralCloseMSG, Payload: void{}}
 	}()
 
-	// TODO: Run the Membership controller and Gossiper.
-	//centralController.membershipController.RunControllerGoroutine()
-	//centralController.gossiper.RunControllerGoroutine()
+	// Run the Membership controller and Gossiper.
+	centralController.membershipController.RunControllerGoroutine()
+	centralController.gossiper.RunControllerGoroutine()
 
-	// TODO: Run the API and P2P listeners.
-	//centralController.p2pListener.RunListenerGoroutine()
-	//centralController.apiListener.RunListenerGoroutine()
+	// Run the API and P2P listeners.
+	centralController.p2pListener.RunListenerGoroutine()
+	centralController.apiListener.RunListenerGoroutine()
 
 	// Account for the 2 listener submodules and 2 controller submodules.
 	centralController.state.totalGoroutines += 4
