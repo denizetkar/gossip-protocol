@@ -53,7 +53,7 @@ func (km *KeyManagement) generateOwnDHKeys() {
 	km.dhPub = km.dhPriv.Bytes()
 }
 
-// Combine external public key and the local private key to compute the final key
+// computeFinalKey method combines external public key and the local private key to compute the final key.
 func (km *KeyManagement) computeFinalKey(b []byte) ([]byte, error) {
 	// Recover public key
 	pubKey := dhkx.NewPublicKey(b)
@@ -66,7 +66,7 @@ func (km *KeyManagement) returnNonceSize() int {
 	return ScryptNonceSize
 }
 
-// checkProofOfWorkValidity expects k, and the handshake, where the nonce is seperated and the signatur is not included and checks the handshake for validity of the proof of work
+// checkProofOfWorkValidity expects k, and the handshake, where the nonce is seperated and the signatur is not included and checks the handshake for validity of the proof of work.
 func checkProofOfWorkValidity(k int, h *Handshake) error {
 	hashVal, err := h.hashVal()
 	if err != nil {
@@ -90,7 +90,7 @@ func PoWThreshold(repetition, bits uint64) *big.Int {
 	return k
 }
 
-// ProofOfWork tries to find right nonce to have k leading zeros
+// ProofOfWork tries to find right nonce to have k leading zeros.
 func ProofOfWork(k int, h *Handshake) error {
 	// Threshold that must not be crossed to have a valid nonce
 	threshold := PoWThreshold(ScryptRepetition, ScryptHashlength*8)
@@ -112,7 +112,7 @@ func ProofOfWork(k int, h *Handshake) error {
 	return errors.New("securecomm: No suitable nonces found for PoW")
 }
 
-// CheckIdentity ensures that the public key is trusted using the out-of-band shared identities
+// CheckIdentity ensures that the public key is trusted using the out-of-band shared identities.
 func CheckIdentity(pubKey *rsa.PublicKey, path string) error {
 	pubKeyBytes := x509.MarshalPKCS1PublicKey(pubKey)
 	shaKey := sha256.Sum256(pubKeyBytes)

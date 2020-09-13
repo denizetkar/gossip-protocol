@@ -1,3 +1,6 @@
+// Package mathutils is a convenience package containing
+// some commonly needed mathematical functions that are not
+// part of the Go language standard libraries.
 package mathutils
 
 // Min returns the minimum of x and y, preferring x.
