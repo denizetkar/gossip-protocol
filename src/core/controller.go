@@ -224,7 +224,7 @@ func NewCentralController(
 		MsgInQueue:              make(chan InternalMessage, inQueueSize),
 	}
 	// Create a P2P secure config.
-	p2pConfig, err := securecomm.NewConfig(trustedIdentitiesPath, hostKeyPath, pubKeyPath)
+	p2pConfig, err := securecomm.NewConfig(trustedIdentitiesPath, hostKeyPath, pubKeyPath, cacheSize)
 	if err != nil {
 		return nil, err
 	}
