@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"gossip/src/datastruct/set"
 	"net"
 	"sync"
@@ -93,7 +94,7 @@ type APIListener struct {
 	MsgOutQueue chan InternalMessage
 	// sigCh is used for signaling the api listener goroutine
 	// to close gracefully.
-	sigCh chan struct{}
+	sigCh chan interface{}
 }
 
 // NewAPIListener is the constructor function of APIListener struct.
@@ -110,14 +111,36 @@ func NewAPIListener(apiAddr string, outQ chan InternalMessage) (*APIListener, er
 	return &APIListener{
 		ln:          ln,
 		MsgOutQueue: outQ,
-		sigCh:       make(chan struct{}),
+		sigCh:       make(chan interface{}),
 	}, nil
 }
 
 func (apiListener *APIListener) listenerRoutine() {
-	// TODO: fill here
-
-	// TODO: notify the Central controller before closing/returning!
+	defer apiListener.recover()
+	for done := false; !done; {
+		conn, err := apiListener.ln.AcceptTCP()
+		if err != nil {
+			switch {
+			case <-apiListener.sigCh:
+				done = true
+			default:
+				break
+			}
+		}
+		client := APIClient{
+			addr: conn.RemoteAddr().String(),
+		}
+		endp := &APIEndpoint{
+			conn:        conn,
+			sigCh:       make(chan struct{}),
+			MsgInQueue:  make(chan InternalMessage, inQueueSize),
+			MsgOutQueue: make(chan InternalMessage, outQueueSize),
+			apiClient:   client,
+			closeOnce:   sync.Once{},
+		}
+		apiListener.MsgOutQueue <- InternalMessage{Type: APIEndpointCreatedMSG, Payload: endp}
+	}
+	apiListener.MsgOutQueue <- InternalMessage{Type: APIEndpointClosedMSG, Payload: nil}
 }
 
 // RunListenerGoroutine runs the goroutine that will listen
@@ -133,18 +156,6 @@ func (apiListener *APIListener) Close() error {
 	close(apiListener.sigCh)
 	apiListener.ln.Close()
 	return nil
-}
-
-// NewAPIEndpoint is the constructor function of APIEndpoint struct.
-func NewAPIEndpoint(apiAddr string, inQ, outQ chan InternalMessage) (*APIEndpoint, error) {
-	conn, err := net.DialTimeout("tcp", apiAddr, connectionTimeout)
-	tcpConn := conn.(*net.TCPConn)
-
-	return &APIEndpoint{
-		apiClient: APIClient{addr: apiAddr}, conn: tcpConn,
-		MsgInQueue: inQ, MsgOutQueue: outQ,
-		sigCh: make(chan struct{}), closeOnce: sync.Once{},
-	}, err
 }
 
 func (apiEndpoint *APIEndpoint) readerRoutine() {
@@ -188,4 +199,24 @@ func (apiEndpoint *APIEndpoint) Close() error {
 // the writer have a STOPPED state.
 func (s *APIClientState) HaveBothStopped() bool {
 	return (s.readerState == APIClientReaderSTOPPED && s.writerState == APIClientWriterSTOPPED)
+}
+
+// recover method tries to catch a panic in listenerRoutine if it exists, then
+// informs the Central controller about the crash.
+func (apiListener *APIListener) recover() {
+	var err error
+	if r := recover(); r != nil {
+		// find out exactly what the error was and set err
+		switch x := r.(type) {
+		case string:
+			err = fmt.Errorf(x)
+		case error:
+			err = x
+		default:
+			err = fmt.Errorf("Unknown panic in APIListener")
+		}
+
+		// send APIListenerCrashedMSG to the Central controller!
+		apiListener.MsgOutQueue <- InternalMessage{Type: APIListenerCrashedMSG, Payload: err}
+	}
 }
