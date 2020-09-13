@@ -17,8 +17,13 @@ import (
 	"io/ioutil"
 	"net"
 	"strings"
-	"sync"
 	"time"
+)
+
+// Constants that are used for the SecureComm Package
+const (
+	// Time after which a Handshake is not valid anymore
+	HandshakeExpirationTime = 10 * time.Second
 )
 
 // Config is the struct for configuration parameters
@@ -42,8 +47,6 @@ type SecureListener struct {
 	config *Config
 	// Receives quit signal
 	quit chan interface{}
-	// Used for waiting for goroutines to finish
-	wg sync.WaitGroup
 }
 
 // Client returns a new secure client side connection
@@ -254,7 +257,6 @@ func (l *SecureListener) Close() error {
 	//https://eli.thegreenplace.net/2020/graceful-shutdown-of-a-tcp-server-in-go/
 	close(l.quit)
 	err := l.ln.Close()
-	l.wg.Wait()
 	return err
 }
 

@@ -1,10 +1,16 @@
 package core
 
 import (
+	"bufio"
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"gossip/src/datastruct/set"
+	"io"
+	"log"
 	"net"
 	"sync"
+	"time"
 )
 
 // APIClient is just a placeholder for the TCP\IP address
@@ -79,7 +85,7 @@ type APIEndpoint struct {
 	// this APIEndpoint goroutine to the Central controller.
 	MsgOutQueue chan InternalMessage
 	// sigCh is used for signaling the reader goroutine to close gracefully.
-	sigCh chan struct{}
+	sigCh chan interface{}
 	// A synchronozation variable to execute the Close method only once.
 	closeOnce sync.Once
 }
@@ -128,12 +134,14 @@ func (apiListener *APIListener) listenerRoutine() {
 				break
 			}
 		}
+
+		// Send the APIEndpoint to the controller
 		client := APIClient{
 			addr: conn.RemoteAddr().String(),
 		}
 		endp := &APIEndpoint{
 			conn:        conn,
-			sigCh:       make(chan struct{}),
+			sigCh:       make(chan interface{}),
 			MsgInQueue:  make(chan InternalMessage, inQueueSize),
 			MsgOutQueue: make(chan InternalMessage, outQueueSize),
 			apiClient:   client,
@@ -141,7 +149,7 @@ func (apiListener *APIListener) listenerRoutine() {
 		}
 		apiListener.MsgOutQueue <- InternalMessage{Type: APIEndpointCreatedMSG, Payload: endp}
 	}
-	apiListener.MsgOutQueue <- InternalMessage{Type: APIEndpointClosedMSG, Payload: nil}
+	apiListener.MsgOutQueue <- InternalMessage{Type: APIListenerClosedMSG, Payload: void{}}
 }
 
 // RunListenerGoroutine runs the goroutine that will listen
@@ -160,9 +168,201 @@ func (apiListener *APIListener) Close() error {
 }
 
 func (apiEndpoint *APIEndpoint) readerRoutine() {
-	// TODO: fill here
+	defer apiEndpoint.recover(true)
 
-	// TODO: notify the Central controller before closing/returning!
+	reader := io.LimitReader(apiEndpoint.conn, 65535)
+	bufioReader := bufio.NewReader(reader)
+
+	binData := make([]byte, 65535)
+
+	for done := false; !done; {
+		header := APIMessageHeader{}
+
+		apiEndpoint.conn.SetDeadline(time.Now().Add(closureCheckTimeout))
+
+		// Peek size of message
+		var size []byte
+		size, err := bufioReader.Peek(2)
+		if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
+			bufioReader.Reset(reader)
+			switch {
+			case <-apiEndpoint.sigCh:
+				done = true
+			default:
+				break
+			}
+			continue
+		} else if err != nil {
+			log.Println("Error in readerRoutine(): " + err.Error())
+			bufioReader.Reset(reader)
+			continue
+		}
+		sizeVal := binary.BigEndian.Uint16(size[:2])
+		if sizeVal < 2 {
+			bufioReader.Reset(reader)
+			log.Println("Error in readerRoutine(): Received message is not larger than 2 bytes")
+			continue
+		}
+
+		// Read Message header
+		n, err := bufioReader.Read(binData)
+		if err != nil {
+			log.Println("Error in readerRoutine(): " + err.Error())
+			bufioReader.Reset(reader)
+			continue
+		}
+		if n != int(sizeVal) {
+			log.Println("Error in readerRoutine(): Malformed API message")
+			bufioReader.Reset(reader)
+			continue
+		}
+		binReader := bytes.NewReader(binData)
+		err = binary.Read(binReader, binary.BigEndian, &header.Size)
+		if err != nil {
+			log.Println("Error in readerRoutine(): " + err.Error())
+			continue
+		}
+
+		err = binary.Read(binReader, binary.BigEndian, &header.MessageType)
+		if err != nil {
+			log.Println("Error in readerRoutine(): " + err.Error())
+			continue
+		}
+
+		switch header.MessageType {
+		case GossipAnnounce:
+			err := apiEndpoint.handleGossipAnnounce(binReader)
+			if err != nil {
+				log.Println("Error in readerRoutine(): " + err.Error())
+				continue
+			}
+		case GossipNotify:
+			err := apiEndpoint.handleGossipNotify(binReader)
+			if err != nil {
+				log.Println("Error in readerRoutine(): " + err.Error())
+				continue
+			}
+		case GossipValidation:
+			err := apiEndpoint.handleGossipValidation(binReader)
+			if err != nil {
+				log.Println("Error in readerRoutine(): " + err.Error())
+				continue
+			}
+		default:
+			log.Println("Error in readerRoutine(): invalid MessageType used")
+			break
+		}
+
+		// End loop gracefully
+		switch {
+		case <-apiEndpoint.sigCh:
+			done = true
+		default:
+			break
+		}
+	}
+	payload := &APIEndpointClosedMSGPayload{endp: apiEndpoint, isReader: true}
+	apiEndpoint.MsgOutQueue <- InternalMessage{Type: APIEndpointClosedMSG, Payload: payload}
+}
+
+func (apiEndpoint *APIEndpoint) handleGossipAnnounce(binReader io.Reader) error {
+	gossipItem := &GossipItem{}
+	var ttl uint8
+	err := binary.Read(binReader, binary.BigEndian, &ttl)
+	if err != nil {
+		return err
+	}
+	var reserved uint8
+	err = binary.Read(binReader, binary.BigEndian, &reserved)
+	if err != nil {
+		return err
+	}
+	err = binary.Read(binReader, binary.BigEndian, &gossipItem.DataType)
+	if err != nil {
+		return err
+	}
+	var data []byte
+	err = binary.Read(binReader, binary.BigEndian, &data)
+	gossipItem.Data = string(data)
+	if err != nil {
+		return err
+	}
+	payload := &GossipAnnounceMSGPayload{
+		Item: gossipItem,
+		TTL:  ttl,
+	}
+	apiEndpoint.MsgOutQueue <- InternalMessage{Type: IncomingAPIMSG, Payload: InternalMessage{Type: GossipAnnounceMSG, Payload: payload}}
+	return nil
+}
+func (apiEndpoint *APIEndpoint) handleGossipNotify(binReader io.Reader) error {
+	var reserved uint16
+	err := binary.Read(binReader, binary.BigEndian, &reserved)
+	if err != nil {
+		return err
+	}
+	var dataType GossipItemDataType
+	err = binary.Read(binReader, binary.BigEndian, &dataType)
+	if err != nil {
+		return err
+	}
+	payload := &GossipNotifyMSGPayload{
+		Who:  APIClient{addr: apiEndpoint.conn.RemoteAddr().String()},
+		What: dataType,
+	}
+	apiEndpoint.MsgOutQueue <- InternalMessage{Type: IncomingAPIMSG, Payload: InternalMessage{Type: GossipNotifyMSG, Payload: payload}}
+	return nil
+}
+
+func (apiEndpoint *APIEndpoint) handleGossipValidation(binReader io.Reader) error {
+	var messageID uint16
+	err := binary.Read(binReader, binary.BigEndian, &messageID)
+	if err != nil {
+		return err
+	}
+	reserved := make([]byte, 2)
+	err = binary.Read(binReader, binary.BigEndian, &reserved)
+	if err != nil {
+		return err
+	}
+	payload := &GossipValidationMSGPayload{
+		Who: APIClient{addr: apiEndpoint.conn.RemoteAddr().String()},
+		ID:  messageID,
+		// Look at last bit and compare to 0
+		Valid: 0 != int(reserved[1]&1),
+	}
+	apiEndpoint.MsgOutQueue <- InternalMessage{Type: IncomingAPIMSG, Payload: InternalMessage{Type: GossipValidationMSG, Payload: payload}}
+	return nil
+}
+func (apiEndpoint *APIEndpoint) handleGossipNotification(_payload AnyMessage) error {
+	payload := _payload.(APINotificationMSGPayload)
+	// Combine messageID, dataType and data to message
+	idByte := make([]byte, 2)
+	binary.BigEndian.PutUint16(idByte, payload.ID)
+
+	datatypeByte := make([]byte, 2)
+	binary.BigEndian.PutUint16(datatypeByte, uint16(payload.Item.DataType))
+
+	msg := append(idByte, datatypeByte...)
+	msg = append(msg, []byte(payload.Item.Data)...)
+
+	var size uint16
+	if len([]byte(payload.Item.Data)) <= 65535-8 {
+		size = 2 + 2 + uint16(len([]byte(payload.Item.Data))) + 2 + 2
+	} else {
+		return fmt.Errorf("APIEndpoint: Data field is too large")
+	}
+	sizeByte := make([]byte, 2)
+	binary.BigEndian.PutUint16(sizeByte, uint16(size))
+
+	messageTypeByte := make([]byte, 2)
+	binary.BigEndian.PutUint16(messageTypeByte, uint16(GossipNotification))
+
+	msg = append(messageTypeByte, msg...)
+	msg = append(sizeByte, msg...)
+
+	// Write message to client
+	_, err := apiEndpoint.conn.Write(msg)
+	return err
 }
 
 // RunReaderGoroutine runs the goroutine that will read from
@@ -173,9 +373,28 @@ func (apiEndpoint *APIEndpoint) RunReaderGoroutine() {
 }
 
 func (apiEndpoint *APIEndpoint) writerRoutine() {
-	// TODO: fill here
-
-	// TODO: notify the Central controller before closing/returning!
+	defer apiEndpoint.recover(false)
+	for done := false; !done; {
+		select {
+		case im := <-apiEndpoint.MsgInQueue:
+			switch im.Type {
+			case APIEndpointCloseMSG:
+				done = true
+				continue
+			case APINotificationMSG:
+				err := apiEndpoint.handleGossipNotification(im.Payload)
+				if err != nil {
+					log.Println("Error in writerRoutine(): " + err.Error())
+					continue
+				}
+			default:
+				log.Println("Error in writerRoutine(): invalid internal message type used")
+				break
+			}
+		}
+	}
+	payload := &APIEndpointClosedMSGPayload{endp: apiEndpoint, isReader: false}
+	apiEndpoint.MsgOutQueue <- InternalMessage{Type: APIEndpointClosedMSG, Payload: payload}
 }
 
 // RunWriterGoroutine runs the goroutine that will receive an
@@ -188,8 +407,8 @@ func (apiEndpoint *APIEndpoint) RunWriterGoroutine() {
 // Close method initiates a graceful closing operation without blocking.
 func (apiEndpoint *APIEndpoint) Close() error {
 	apiEndpoint.closeOnce.Do(func() {
-		// TODO: send an InternalMessage to the writer for closing it!
-
+		// Send an InternalMessage to the writer to close it.
+		apiEndpoint.MsgInQueue <- InternalMessage{Type: APIEndpointCloseMSG, Payload: void{}}
 		// Closing the 'sigCh' channel signals the reader to close itself.
 		close(apiEndpoint.sigCh)
 	})
@@ -219,5 +438,26 @@ func (apiListener *APIListener) recover() {
 
 		// send APIListenerCrashedMSG to the Central controller!
 		apiListener.MsgOutQueue <- InternalMessage{Type: APIListenerCrashedMSG, Payload: err}
+	}
+}
+
+// recover method tries to catch a panic in an APIEndpoint if it exists, then
+// informs the Central controller about the crash.
+func (apiEndpoint *APIEndpoint) recover(isReader bool) {
+	var err error
+	if r := recover(); r != nil {
+		// find out exactly what the error was and set err
+		switch x := r.(type) {
+		case string:
+			err = fmt.Errorf(x)
+		case error:
+			err = x
+		default:
+			err = fmt.Errorf("Unknown panic in APIEndpoint")
+		}
+
+		// send APIListenerCrashedMSG to the Central controller!
+		payload := &APIEndpointCrashedMSGPayload{endp: apiEndpoint, err: err, isReader: isReader}
+		apiEndpoint.MsgOutQueue <- InternalMessage{Type: APIEndpointCrashedMSG, Payload: payload}
 	}
 }
