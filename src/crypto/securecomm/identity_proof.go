@@ -4,6 +4,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"gossip/src/parser/identity"
 	"math/big"
@@ -118,7 +119,7 @@ func CheckIdentity(pubKey *rsa.PublicKey, path string) error {
 	shaKey := sha256.Sum256(pubKeyBytes)
 	identities := identity.Parse(path)
 	for _, v := range identities {
-		if v == string(shaKey[:]) {
+		if v == hex.EncodeToString(shaKey[:]) {
 			return nil
 		}
 	}
