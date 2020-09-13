@@ -15,6 +15,8 @@ import (
 	"math/big"
 	mrand "math/rand"
 	"time"
+
+	mathutils "gossip/src/utils/math"
 )
 
 var membershipControllerHandlers map[InternalMessageType]func(*MembershipController, AnyMessage) error
@@ -359,7 +361,8 @@ func (membershipController *MembershipController) removePeer(peer Peer) {
 // pushRound is the method for performing limited push requests
 // during a membership round, as desribed in the BRAHMS paper.
 func (membershipController *MembershipController) pushRound() {
-	pushIndexes := mrand.Perm(membershipController.viewList.Len())[:membershipController.alphaSize]
+	size := membershipController.viewList.Len()
+	pushIndexes := mrand.Perm(size)[:mathutils.Min(int(membershipController.alphaSize), size)]
 	for _, i := range pushIndexes {
 		if mrand.Float64() <= membershipController.pushProbability {
 			ithElem := membershipController.viewList.ElemAtIndex(i)
@@ -386,7 +389,8 @@ func (membershipController *MembershipController) pushRound() {
 // a membership round, as desribed in the BRAHMS paper.
 func (membershipController *MembershipController) pullRound() {
 	membershipController.pullPeers = set.New()
-	pullIndexes := mrand.Perm(membershipController.viewList.Len())[:membershipController.betaSize]
+	size := membershipController.viewList.Len()
+	pullIndexes := mrand.Perm(size)[:mathutils.Min(int(membershipController.betaSize), size)]
 	for _, i := range pullIndexes {
 		ithElem := membershipController.viewList.ElemAtIndex(i)
 		peer := ithElem.(Peer)
@@ -412,14 +416,16 @@ func (membershipController *MembershipController) updateRound() {
 			newViewList.Add(peer)
 		}
 		// Add up to betaSize pulled peers into the new view list.
-		pullIndexes := mrand.Perm(membershipController.pullReplies.Len())[:membershipController.betaSize]
+		size := membershipController.pullReplies.Len()
+		pullIndexes := mrand.Perm(size)[:mathutils.Min(int(membershipController.betaSize), size)]
 		for _, i := range pullIndexes {
 			ithElem := membershipController.pullReplies.ElemAtIndex(i)
 			peer := ithElem.(Peer)
 			newViewList.Add(peer)
 		}
 		// Add up to gammaSize sampled peers into the new view list.
-		sampleIndexes := mrand.Perm(membershipController.sampleList.Len())[:membershipController.gammaSize]
+		size = membershipController.sampleList.Len()
+		sampleIndexes := mrand.Perm(size)[:mathutils.Min(int(membershipController.gammaSize), size)]
 		for _, i := range sampleIndexes {
 			ithElem, _ := membershipController.sampleList.KeyAtIndex(i)
 			peer := ithElem.(Peer)

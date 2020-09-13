@@ -17,6 +17,8 @@ import (
 	"os"
 	"os/signal"
 	"time"
+
+	mathutils "gossip/src/utils/math"
 )
 
 var centralControllerHandlers map[InternalMessageType]func(*CentralController, AnyMessage) error
@@ -152,7 +154,7 @@ const (
 	alpha, beta             = 0.45, 0.45
 	inQueueSize             = 1024
 	outQueueSize            = 64
-	membershipRoundDuration = 30 * time.Second
+	membershipRoundDuration = 10 * time.Second
 	gossipRoundDuration     = 500 * time.Millisecond
 	connectionTimeout       = 2 * time.Second
 	closureTimeout          = 6 * time.Second
@@ -524,7 +526,8 @@ func (centralController *CentralController) randomPeerListRequestHandler(payload
 	// Create a random list of peers as a response.
 	var RandomPeers []Peer
 	// Pick at random msg.Num of the peer in the view list.
-	randomIndexes := mrand.Perm(centralController.viewList.Len())[:msg.Num]
+	size := centralController.viewList.Len()
+	randomIndexes := mrand.Perm(size)[:mathutils.Min(msg.Num, size)]
 	for _, i := range randomIndexes {
 		key, _ := centralController.viewList.KeyAtIndex(i)
 		peer := key.(Peer)
