@@ -26,3 +26,7 @@ type P2PEndpointClosedMSGPayload struct {
 	endp     *P2PEndpoint
 	isReader bool
 }
+
+// P2PEndpointCloseMSGPayload is the payload type of an InternalMessage
+// with type P2PEndpointCloseMSG.
+type P2PEndpointCloseMSGPayload void

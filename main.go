@@ -102,5 +102,5 @@ func main() {
 		log.Fatalln(err)
 	}
 	log.Println(centralController)
-	//centralController.Run()
+	centralController.Run()
 }
