@@ -38,6 +38,9 @@ func init() {
 	centralControllerHandlers[RandomPeerListRequestMSG] = (*CentralController).randomPeerListRequestHandler
 	centralControllerHandlers[RandomPeerListReleaseMSG] = (*CentralController).randomPeerListReleaseHandler
 	centralControllerHandlers[GossipNotificationMSG] = (*CentralController).gossipNotificationHandler
+	centralControllerHandlers[GossipPushMSG] = (*CentralController).gossipPushHandler
+	centralControllerHandlers[GossipPullRequestMSG] = (*CentralController).gossipPullRequestHandler
+	centralControllerHandlers[GossipPullReplyMSG] = (*CentralController).gossipPullReplyHandler
 	centralControllerHandlers[GossiperCrashedMSG] = (*CentralController).gossiperCrashedHandler
 	centralControllerHandlers[GossiperClosedMSG] = (*CentralController).gossiperClosedHandler
 	centralControllerHandlers[APIListenerCrashedMSG] = (*CentralController).apiEndpointCrashedHandler
@@ -464,15 +467,9 @@ func (centralController *CentralController) membershipPullReplyHandler(payload A
 	if !ok {
 		return nil
 	}
-	var info *PeerInfoCentral
-	// Check if the peer to be sent is either in the view list or
-	// in the awaiting removal view list.
-	if centralController.viewList.IsMember(pr.To) {
-		value := centralController.viewList.GetValue(pr.To)
-		info = value.(*PeerInfoCentral)
-	} else if _info, isMember := centralController.awaitingRemovalViewList[pr.To]; isMember {
-		info = _info
-	} else {
+	// Check if the peer to be sent is in the incoming view list.
+	info, isMember := centralController.incomingViewList[pr.To]
+	if !isMember {
 		return nil
 	}
 	// Check if the writer goroutine is running.
@@ -609,6 +606,84 @@ func (centralController *CentralController) gossipNotificationHandler(payload An
 		Type:    APINotificationMSG,
 		Payload: APINotificationMSGPayload{Who: msg.Who, Item: msg.Item, ID: msg.ID},
 	}
+
+	return nil
+}
+
+// gossipPushHandler is the method called by the Run method for when
+// it receives an internal message of type GossipPushMSG.
+func (centralController *CentralController) gossipPushHandler(payload AnyMessage) error {
+	msg, ok := payload.(GossipPushMSGPayload)
+	if !ok {
+		return nil
+	}
+	var info *PeerInfoCentral
+	// Check if the peer to be sent is either in the view list or
+	// in the awaiting removal view list.
+	if centralController.viewList.IsMember(msg.To) {
+		value := centralController.viewList.GetValue(msg.To)
+		info = value.(*PeerInfoCentral)
+	} else if _info, isMember := centralController.awaitingRemovalViewList[msg.To]; isMember {
+		info = _info
+	} else {
+		return nil
+	}
+	// Check if the writer goroutine is running.
+	if info.state.writerState != PeerWriterRUNNING {
+		return nil
+	}
+	// Send the internal message to the p2p endpoint.
+	info.endpoint.MsgInQueue <- InternalMessage{Type: GossipPushMSG, Payload: payload}
+
+	return nil
+}
+
+// gossipPullRequestHandler is the method called by the Run method for when
+// it receives an internal message of type GossipPullRequestMSG.
+func (centralController *CentralController) gossipPullRequestHandler(payload AnyMessage) error {
+	peer, ok := payload.(Peer)
+	if !ok {
+		return nil
+	}
+	var info *PeerInfoCentral
+	// Check if the peer to be sent is either in the view list or
+	// in the awaiting removal view list.
+	if centralController.viewList.IsMember(peer) {
+		value := centralController.viewList.GetValue(peer)
+		info = value.(*PeerInfoCentral)
+	} else if _info, isMember := centralController.awaitingRemovalViewList[peer]; isMember {
+		info = _info
+	} else {
+		return nil
+	}
+	// Check if the writer goroutine is running.
+	if info.state.writerState != PeerWriterRUNNING {
+		return nil
+	}
+	// Send the internal message to the p2p endpoint.
+	info.endpoint.MsgInQueue <- InternalMessage{Type: GossipPullRequestMSG, Payload: payload}
+
+	return nil
+}
+
+// gossipPullReplyHandler is the method called by the Run method for when
+// it receives an internal message of type GossipPullReplyMSG.
+func (centralController *CentralController) gossipPullReplyHandler(payload AnyMessage) error {
+	msg, ok := payload.(GossipPullReplyMSGPayload)
+	if !ok {
+		return nil
+	}
+	// Check if the peer to be sent is in the incoming view list.
+	info, isMember := centralController.incomingViewList[msg.To]
+	if !isMember {
+		return nil
+	}
+	// Check if the writer goroutine is running.
+	if info.state.writerState != PeerWriterRUNNING {
+		return nil
+	}
+	// Send the internal message to the p2p endpoint.
+	info.endpoint.MsgInQueue <- InternalMessage{Type: GossipPullReplyMSG, Payload: payload}
 
 	return nil
 }
