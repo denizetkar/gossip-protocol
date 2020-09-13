@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"errors"
+	"fmt"
+	"gossip/src/utils"
 	"sync/atomic"
 	"time"
 
@@ -70,6 +72,9 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 	if err != nil {
 		return err
 	}
+	if !utils.TCPAddrCmp(c.conn.LocalAddr().String(), hs.mClient.Addr.String()) {
+		return fmt.Errorf("securecomm: Handshake IP Address and Connection IP Address don't match")
+	}
 	err = rsa.VerifyPSS(&hs.mClient.RSAPub, crypto.SHA3_256, hs.mClient.concatIdentifiersInclNonce(), hs.mClient.RSASig, nil)
 	if err != nil {
 		return err
@@ -80,7 +85,7 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 		DHPub:    hs.km.dhPub,
 		RSAPub:   hs.c.config.HostKey.PublicKey,
 		Time:     time.Now().UTC(),
-		Addr:     c.LocalAddr(),
+		Addr:     c.RemoteAddr(),
 		IsClient: false}
 
 	err = ProofOfWork(c.config.k, &handshake)
