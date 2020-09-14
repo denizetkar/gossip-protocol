@@ -789,6 +789,10 @@ func (centralController *CentralController) apiEndpointCreatedHandler(payload An
 		isMember || centralController.state.isStopping {
 		// Close the connection inside the endpoint.
 		go func() {
+			if endp.conn == nil {
+				log.Println("endp.conn is nil", endp.apiClient.addr)
+				return
+			}
 			endp.conn.Close()
 		}()
 		return nil
@@ -840,6 +844,10 @@ func (centralController *CentralController) apiEndpointClosed(
 		delete(centralController.apiClients, endp.apiClient)
 		// Close the connection inside the endpoint.
 		go func() {
+			if endp.conn == nil {
+				log.Println("endp.conn is nil", endp.apiClient.addr)
+				return
+			}
 			endp.conn.Close()
 		}()
 		// Check if the api endpoint is not supposed to be closed.
@@ -939,6 +947,10 @@ func (centralController *CentralController) incomingP2PCreatedHandler(payload An
 		isMember || centralController.state.isStopping {
 		// Close the connection inside the endpoint.
 		go func() {
+			if endp.conn == nil {
+				log.Println("endp.conn is nil", endp.peer.Addr)
+				return
+			}
 			endp.conn.Close()
 		}()
 		return nil
@@ -999,6 +1011,10 @@ func (centralController *CentralController) outgoingPeerCompletelyClosed(
 	}
 	// Close the connection inside the endpoint.
 	go func() {
+		if info.endpoint.conn == nil {
+			log.Println("info.endpoint.conn is nil", info.endpoint.peer.Addr)
+			return
+		}
 		info.endpoint.conn.Close()
 	}()
 	// Check if all submodules (goroutines) are closed.
@@ -1083,6 +1099,10 @@ func (centralController *CentralController) incomingPeerClosed(
 		delete(centralController.incomingViewList, endp.peer)
 		// Close the connection inside the endpoint.
 		go func() {
+			if endp.conn == nil {
+				log.Println("endp.conn is nil", endp.peer.Addr)
+				return
+			}
 			endp.conn.Close()
 		}()
 		// Check if the p2p endpoint is not supposed to be closed.
@@ -1146,6 +1166,10 @@ func (centralController *CentralController) outgoingP2PCreatedHandler(payload An
 		log.Println("Outgoing P2P endpoint", endp.peer.Addr, "was created without registration!")
 		// Close the connection inside the endpoint.
 		go func() {
+			if endp.conn == nil {
+				log.Println("endp.conn is nil", endp.peer.Addr)
+				return
+			}
 			endp.conn.Close()
 		}()
 		return nil
