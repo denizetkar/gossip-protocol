@@ -103,9 +103,10 @@ func (c *SecureConn) write(data *Message) error {
 }
 
 // Read a Message directly, should be used only internally
-func (c *SecureConn) read() (data *Message, err error) {
-	err = c.input.Decode(data)
-	return data, err
+func (c *SecureConn) read() (*Message, error) {
+	var data Message
+	err := c.input.Decode(&data)
+	return &data, err
 }
 
 // Handshake runs the client or server handshake

@@ -608,7 +608,7 @@ func (membershipController *MembershipController) incomingPullRequestHandler(pay
 	if !ok {
 		return nil
 	}
-	reply := MembershipPullReplyMSGPayload{To: pr.From}
+	reply := MembershipPullReplyMSGPayload{To: pr.From, ViewList: make([]Peer, 0)}
 	for elem := range membershipController.viewList.Iterate() {
 		peer := elem.(Peer)
 		reply.ViewList = append(reply.ViewList, peer)

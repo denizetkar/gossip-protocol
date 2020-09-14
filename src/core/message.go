@@ -190,9 +190,6 @@ const (
 	IncomingP2PMSG
 )
 
-// TODO: Add more message types for the following submodules:
-//       APIListener, P2PListener, APIEndpoint, P2PEndpoint.
-
 // AnyMessage is the type of any internal message between goroutines
 // of the Gossip module. The contents of these messages MUST NOT be
 // shared between the communicating goroutines. So, make an explicit
@@ -209,8 +206,6 @@ type InternalMessage struct {
 	Type    InternalMessageType
 	Payload AnyMessage
 }
-
-// TODO: Create payload types for all internal message types as necessary.
 
 // CloseError is a special type of error used by a message handler function,
 // in order to signal to a goroutine that it should close gracefully.

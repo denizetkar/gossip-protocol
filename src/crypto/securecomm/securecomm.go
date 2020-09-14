@@ -229,6 +229,7 @@ func dial(ctx context.Context, netDialer *net.Dialer, network, addr string, conf
 			}
 		}
 	}
+	// TODO: REMOVE LOGGING.
 	log.Println("POINT1,", err)
 	if err != nil {
 		rawConn.Close()
@@ -338,7 +339,6 @@ func (sc *SecureConn) Write(b []byte) (int, error) {
 // Close closes the secure connection properly.
 func (sc *SecureConn) Close() error {
 	err := sc.conn.Close()
-	// TODO: fill here
 	return err
 }
 

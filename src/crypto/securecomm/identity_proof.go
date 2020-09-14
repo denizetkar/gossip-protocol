@@ -16,12 +16,12 @@ import (
 
 // Parameters to be used in the scrypt command
 const (
-	ScryptN          = 16384
+	ScryptN          = 1 << 5
 	ScryptR          = 8
 	ScryptP          = 1
 	ScryptHashlength = 128
 	ScryptNonceSize  = 64
-	ScryptRepetition = 200
+	ScryptRepetition = 256
 )
 
 // KeyManagement manages own keys related to DH exchange

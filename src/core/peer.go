@@ -204,17 +204,18 @@ func (p2pEndpoint *P2PEndpoint) readerRoutine() {
 	gobDecoder := gob.NewDecoder(reader)
 
 	for done := false; !done; {
+		select {
+		case <-p2pEndpoint.sigCh:
+			done = true
+			continue
+		default:
+			break
+		}
 		p2pEndpoint.conn.SetDeadline(time.Now().Add(closureCheckTimeout))
 
 		var message InternalMessage
 		err := gobDecoder.Decode(&message)
 		if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
-			select {
-			case <-p2pEndpoint.sigCh:
-				done = true
-			default:
-				break
-			}
 			continue
 		} else if err != nil {
 			log.Println("P2PEndpoint: Error in readerRoutine():" + err.Error())
@@ -251,13 +252,6 @@ func (p2pEndpoint *P2PEndpoint) readerRoutine() {
 		if im != nil {
 			log.Println("P2P Endpoint -> Central controller, IncomingP2PMSG,", *im)
 			p2pEndpoint.MsgOutQueue <- *im
-		}
-		// End loop gracefully
-		switch {
-		case <-p2pEndpoint.sigCh:
-			done = true
-		default:
-			break
 		}
 	}
 	payload := P2PEndpointClosedMSGPayload{endp: p2pEndpoint, isReader: true}
