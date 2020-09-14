@@ -252,7 +252,7 @@ func (p2pEndpoint *P2PEndpoint) readerRoutine() {
 			break
 		}
 	}
-	payload := &P2PEndpointClosedMSGPayload{endp: p2pEndpoint, isReader: true}
+	payload := P2PEndpointClosedMSGPayload{endp: p2pEndpoint, isReader: true}
 	log.Println("P2P Endpoint -> Central controller, P2PEndpointClosedMSG,", payload)
 	p2pEndpoint.MsgOutQueue <- InternalMessage{Type: P2PEndpointClosedMSG, Payload: payload}
 }
@@ -294,7 +294,7 @@ func (p2pEndpoint *P2PEndpoint) writerRoutine() {
 			}
 		}
 	}
-	payload := &P2PEndpointClosedMSGPayload{endp: p2pEndpoint, isReader: false}
+	payload := P2PEndpointClosedMSGPayload{endp: p2pEndpoint, isReader: false}
 	log.Println("P2P Endpoint -> Central controller, P2PEndpointClosedMSG,", payload)
 	p2pEndpoint.MsgOutQueue <- InternalMessage{Type: P2PEndpointClosedMSG, Payload: payload}
 }
@@ -361,8 +361,8 @@ func (p2pEndpoint *P2PEndpoint) recover(isReader bool) {
 		}
 
 		// send P2PListenerCrashedMSG to the Central controller!
-		payload := &P2PEndpointCrashedMSGPayload{endp: p2pEndpoint, err: err, isReader: isReader}
-		log.Println("P2P Endpoint -> Central controller, P2PEndpointCrashedMSG,", payload)
+		payload := P2PEndpointCrashedMSGPayload{endp: p2pEndpoint, err: err, isReader: isReader}
+		log.Println("P2P Endpoint -> Central controller, P2PEndpointCrashedMSG,", p2pEndpoint.peer.Addr, err, isReader)
 		p2pEndpoint.MsgOutQueue <- InternalMessage{Type: P2PEndpointCrashedMSG, Payload: payload}
 	}
 }

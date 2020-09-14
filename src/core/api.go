@@ -263,7 +263,7 @@ func (apiEndpoint *APIEndpoint) readerRoutine() {
 			break
 		}
 	}
-	payload := &APIEndpointClosedMSGPayload{endp: apiEndpoint, isReader: true}
+	payload := APIEndpointClosedMSGPayload{endp: apiEndpoint, isReader: true}
 	log.Println("API Endpoint -> Central controller, APIEndpointClosedMSG,", payload)
 	apiEndpoint.MsgOutQueue <- InternalMessage{Type: APIEndpointClosedMSG, Payload: payload}
 }
@@ -411,7 +411,7 @@ func (apiEndpoint *APIEndpoint) writerRoutine() {
 			}
 		}
 	}
-	payload := &APIEndpointClosedMSGPayload{endp: apiEndpoint, isReader: false}
+	payload := APIEndpointClosedMSGPayload{endp: apiEndpoint, isReader: false}
 	log.Println("API Endpoint -> Central controller, APIEndpointClosedMSG,", payload)
 	apiEndpoint.MsgOutQueue <- InternalMessage{Type: APIEndpointClosedMSG, Payload: payload}
 }
@@ -478,8 +478,8 @@ func (apiEndpoint *APIEndpoint) recover(isReader bool) {
 		}
 
 		// send APIListenerCrashedMSG to the Central controller!
-		payload := &APIEndpointCrashedMSGPayload{endp: apiEndpoint, err: err, isReader: isReader}
-		log.Println("API Endpoint -> Central controller, APIEndpointCrashedMSG,", payload)
+		payload := APIEndpointCrashedMSGPayload{endp: apiEndpoint, err: err, isReader: isReader}
+		log.Println("P2P Endpoint -> Central controller, P2PEndpointCrashedMSG,", apiEndpoint.apiClient.addr, err, isReader)
 		apiEndpoint.MsgOutQueue <- InternalMessage{Type: APIEndpointCrashedMSG, Payload: payload}
 	}
 }
