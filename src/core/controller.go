@@ -1346,6 +1346,9 @@ func (centralController *CentralController) closeHandler(payload AnyMessage) err
 	for peer := range centralController.activelyProbedPeers {
 		centralController.activelyProbedPeers[peer] = false
 	}
+	for _, info := range centralController.incomingViewList {
+		info.endpoint.Close()
+	}
 	for _, info := range centralController.apiClients {
 		info.endpoint.Close()
 	}

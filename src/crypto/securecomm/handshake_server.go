@@ -6,7 +6,6 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"gossip/src/utils"
-	"log"
 	"sync/atomic"
 	"time"
 
@@ -57,8 +56,6 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 
 	// Read and verify client handshake
 	handshakeClient, err := c.read()
-	// TODO: REMOVE LOGGING.
-	log.Println("client handshake:", handshakeClient)
 	if err != nil {
 		return err
 	}
