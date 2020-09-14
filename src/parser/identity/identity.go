@@ -15,7 +15,7 @@ func Parse(path string) (identities []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	regex := regexp.MustCompile("^[1-9A-F]{64}$")
+	regex := regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
 	for _, value := range files {
 		if regex.MatchString(value.Name()) {
 			identities = append(identities, value.Name())

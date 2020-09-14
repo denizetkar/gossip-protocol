@@ -117,9 +117,10 @@ func ProofOfWork(k int, h *Handshake) error {
 func CheckIdentity(pubKey *rsa.PublicKey, path string) error {
 	pubKeyBytes := x509.MarshalPKCS1PublicKey(pubKey)
 	shaKey := sha256.Sum256(pubKeyBytes)
+	hexStr := hex.EncodeToString(shaKey[:])
 	identities := identity.Parse(path)
 	for _, v := range identities {
-		if v == hex.EncodeToString(shaKey[:]) {
+		if v == hexStr {
 			return nil
 		}
 	}
