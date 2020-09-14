@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net"
 	"strings"
 	"time"
@@ -228,6 +229,7 @@ func dial(ctx context.Context, netDialer *net.Dialer, network, addr string, conf
 			}
 		}
 	}
+	log.Println("POINT1,", err)
 	if err != nil {
 		rawConn.Close()
 		return nil, err

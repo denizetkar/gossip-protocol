@@ -76,10 +76,13 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 	handshake.RSASig = s
 
 	// Write handshake to server
-	c.write(
+	err = c.write(
 		&Message{
 			Data:      nil,
 			Handshake: handshake})
+	if err != nil {
+		return err
+	}
 	hs.mClient = &handshake
 
 	// Read and verify server handshake

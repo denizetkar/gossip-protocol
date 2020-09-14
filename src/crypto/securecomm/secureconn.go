@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+func init() {
+	gob.Register(net.TCPAddr{})
+}
+
 // SecureConn is the secure communication connection.
 type SecureConn struct {
 	conn           *net.TCPConn
@@ -91,7 +95,7 @@ func (messageError) Error() string { return "securecomm: Message format is incor
 
 // Write a Message directly, should be used only internally
 func (c *SecureConn) write(data *Message) error {
-	if !(data.Data != nil || !data.Handshake.isValid()) {
+	if data.Data == nil && !data.Handshake.isValid() {
 		return messageError{}
 	}
 	err := c.output.Encode(data)

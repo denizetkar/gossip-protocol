@@ -99,7 +99,7 @@ func ProofOfWork(k int, h *Handshake) error {
 	rand.Read(h.Nonce)
 	// https://wizardforcel.gitbooks.io/practical-cryptography-for-developers-book/content/mac-and-key-derivation/scrypt.html
 	// Memory required = 128 * N * r * p bytes
-	for i := 0; i < 2*ScryptRepetition; i++ {
+	for i := 0; i < 4*ScryptRepetition; i++ {
 		hashVal, err := h.hashVal()
 		if err != nil {
 			return err

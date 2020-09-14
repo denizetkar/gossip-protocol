@@ -12,6 +12,14 @@ import (
 	"time"
 )
 
+func init() {
+	gob.Register(MembershipPushRequestMSGPayload{})
+	gob.Register(Peer{})
+	gob.Register(MembershipPullReplyMSGPayload{})
+	gob.Register(GossipPushMSGPayload{})
+	gob.Register(GossipPullReplyMSGPayload{})
+}
+
 // Peer is just a placeholder for the TCP\IP address
 // of a peer.
 type Peer struct {

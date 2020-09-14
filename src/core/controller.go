@@ -155,7 +155,7 @@ const (
 	outQueueSize            = 64
 	membershipRoundDuration = 6 * time.Second
 	gossipRoundDuration     = 2000 * time.Millisecond
-	connectionTimeout       = 2 * time.Second
+	connectionTimeout       = 5 * time.Second
 	closureTimeout          = 6 * time.Second
 	closureCheckTimeout     = 500 * time.Millisecond
 )
