@@ -218,8 +218,7 @@ func (p2pEndpoint *P2PEndpoint) readerRoutine() {
 		if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 			continue
 		} else if err != nil {
-			log.Println("P2PEndpoint: Error in readerRoutine():" + err.Error())
-			continue
+			panic(fmt.Sprint("P2PEndpoint: Error in readerRoutine():", err))
 		}
 		// Using IncomingP2PMSG message for all messages to be able to use a single handler.
 		// The Payload is the whole message, including the right message type.
@@ -284,7 +283,7 @@ func (p2pEndpoint *P2PEndpoint) writerRoutine() {
 			} else if allowedMSGs.IsMember(im.Type) {
 				err := gobEncoder.Encode(im)
 				if err != nil {
-					log.Println("P2PEndpoint: Error in writerRoutine():" + err.Error())
+					log.Println("P2PEndpoint: Error in writerRoutine():", err)
 					continue
 				}
 			} else if im.Type == P2PEndpointCloseMSG {

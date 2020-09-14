@@ -11,7 +11,6 @@ import (
 	"crypto/x509"
 	"encoding/gob"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -203,7 +202,7 @@ func dial(ctx context.Context, netDialer *net.Dialer, network, addr string, conf
 		colonPos = len(addr)
 	}
 	if config == nil {
-		return nil, errors.New("Config is nil")
+		return nil, fmt.Errorf("Config is nil")
 	}
 
 	//TODO: check if correctly casted
@@ -323,7 +322,7 @@ func (sc *SecureConn) Write(b []byte) (int, error) {
 	//Create a nonce to be used with GCM
 	nonce := make([]byte, aesGCM.NonceSize())
 	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
-		panic(err.Error())
+		panic(err)
 	}
 	// Add nonce as a prefix to the ciphertext
 	encB := aesGCM.Seal(nonce, nonce, b, nil)

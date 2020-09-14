@@ -4,7 +4,6 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
-	"errors"
 	"fmt"
 	"gossip/src/utils"
 	"sync/atomic"
@@ -15,7 +14,7 @@ import (
 
 func (c *SecureConn) clientHandshake() (err error) {
 	if c.config == nil {
-		return errors.New("Config is nil")
+		return fmt.Errorf("Config is nil")
 	}
 
 	hs := &clientHandshakeState{

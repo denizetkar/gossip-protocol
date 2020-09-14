@@ -178,8 +178,14 @@ func (apiEndpoint *APIEndpoint) readerRoutine() {
 	binData := make([]byte, 65535)
 
 	for done := false; !done; {
+		select {
+		case <-apiEndpoint.sigCh:
+			done = true
+			continue
+		default:
+			break
+		}
 		header := APIMessageHeader{}
-
 		apiEndpoint.conn.SetDeadline(time.Now().Add(closureCheckTimeout))
 
 		// Peek size of message
@@ -187,17 +193,9 @@ func (apiEndpoint *APIEndpoint) readerRoutine() {
 		size, err := bufioReader.Peek(2)
 		if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 			bufioReader.Reset(reader)
-			select {
-			case <-apiEndpoint.sigCh:
-				done = true
-			default:
-				break
-			}
 			continue
 		} else if err != nil {
-			log.Println("Error in readerRoutine(): " + err.Error())
-			bufioReader.Reset(reader)
-			continue
+			panic(fmt.Sprint("Error in readerRoutine():", err))
 		}
 		sizeVal := binary.BigEndian.Uint16(size[:2])
 		if sizeVal < 2 {
@@ -209,7 +207,7 @@ func (apiEndpoint *APIEndpoint) readerRoutine() {
 		// Read Message header
 		n, err := bufioReader.Read(binData)
 		if err != nil {
-			log.Println("Error in readerRoutine(): " + err.Error())
+			log.Println("Error in readerRoutine():", err)
 			bufioReader.Reset(reader)
 			continue
 		}
@@ -221,13 +219,13 @@ func (apiEndpoint *APIEndpoint) readerRoutine() {
 		binReader := bytes.NewReader(binData)
 		err = binary.Read(binReader, binary.BigEndian, &header.Size)
 		if err != nil {
-			log.Println("Error in readerRoutine(): " + err.Error())
+			log.Println("Error in readerRoutine():", err)
 			continue
 		}
 
 		err = binary.Read(binReader, binary.BigEndian, &header.MessageType)
 		if err != nil {
-			log.Println("Error in readerRoutine(): " + err.Error())
+			log.Println("Error in readerRoutine():", err)
 			continue
 		}
 
@@ -235,31 +233,23 @@ func (apiEndpoint *APIEndpoint) readerRoutine() {
 		case GossipAnnounce:
 			err := apiEndpoint.handleGossipAnnounce(binReader)
 			if err != nil {
-				log.Println("Error in readerRoutine(): " + err.Error())
+				log.Println("Error in readerRoutine():", err)
 				continue
 			}
 		case GossipNotify:
 			err := apiEndpoint.handleGossipNotify(binReader)
 			if err != nil {
-				log.Println("Error in readerRoutine(): " + err.Error())
+				log.Println("Error in readerRoutine():", err)
 				continue
 			}
 		case GossipValidation:
 			err := apiEndpoint.handleGossipValidation(binReader)
 			if err != nil {
-				log.Println("Error in readerRoutine(): " + err.Error())
+				log.Println("Error in readerRoutine():", err)
 				continue
 			}
 		default:
 			log.Println("Error in readerRoutine(): invalid MessageType used")
-			break
-		}
-
-		// End loop gracefully
-		select {
-		case <-apiEndpoint.sigCh:
-			done = true
-		default:
 			break
 		}
 	}
@@ -402,7 +392,7 @@ func (apiEndpoint *APIEndpoint) writerRoutine() {
 			case APINotificationMSG:
 				err := apiEndpoint.handleGossipNotification(im.Payload)
 				if err != nil {
-					log.Println("Error in writerRoutine(): " + err.Error())
+					log.Println("Error in writerRoutine():", err)
 					continue
 				}
 			default:

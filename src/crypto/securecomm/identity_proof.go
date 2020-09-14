@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
-	"errors"
+	"fmt"
 	"gossip/src/parser/identity"
 	"math/big"
 	"math/rand"
@@ -37,7 +37,7 @@ func emptyKM() *KeyManagement {
 
 func (h *Handshake) hashVal() (*big.Int, error) {
 	if h.Nonce == nil {
-		return nil, errors.New("securecomm: Nonce should not be nil")
+		return nil, fmt.Errorf("securecomm: Nonce should not be nil")
 	}
 	hash, err := scrypt.Key(h.concatIdentifiers(), h.Nonce, ScryptN, ScryptR, ScryptP, ScryptHashlength)
 	if err != nil {
@@ -78,7 +78,7 @@ func checkProofOfWorkValidity(k int, h *Handshake) error {
 	if hashVal.Cmp(threshold) <= 0 {
 		return nil
 	}
-	return errors.New("ProofOfWork is not valid")
+	return fmt.Errorf("ProofOfWork is not valid")
 }
 
 // PoWThreshold returns the 'k' value for a given bit size and repetition.
@@ -110,7 +110,7 @@ func ProofOfWork(k int, h *Handshake) error {
 		rand.Read(h.Nonce)
 	}
 	h.Nonce = nil
-	return errors.New("securecomm: No suitable nonces found for PoW")
+	return fmt.Errorf("securecomm: No suitable nonces found for PoW")
 }
 
 // CheckIdentity ensures that the public key is trusted using the out-of-band shared identities.
@@ -123,5 +123,5 @@ func CheckIdentity(pubKey *rsa.PublicKey, path string) error {
 			return nil
 		}
 	}
-	return errors.New("securecomm: Identity is not trusted")
+	return fmt.Errorf("securecomm: Identity is not trusted")
 }

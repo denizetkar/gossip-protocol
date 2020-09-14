@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	gob.Register(net.TCPAddr{})
+	gob.Register(&net.TCPAddr{})
 }
 
 // SecureConn is the secure communication connection.
