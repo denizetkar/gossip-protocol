@@ -104,7 +104,8 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 	if !utils.TCPAddrCmp(c.conn.LocalAddr().String(), hs.mServer.Addr.String()) {
 		return fmt.Errorf("securecomm: Handshake IP Address and Connection IP Address don't match")
 	}
-	err = rsa.VerifyPSS(&hs.mServer.RSAPub, crypto.SHA3_256, hs.mServer.concatIdentifiersInclNonce(), hs.mServer.RSASig, nil)
+	shaM = sha3.Sum256(hs.mServer.concatIdentifiersInclNonce())
+	err = rsa.VerifyPSS(&hs.mServer.RSAPub, crypto.SHA3_256, shaM[:], hs.mServer.RSASig, nil)
 	if err != nil {
 		return err
 	}

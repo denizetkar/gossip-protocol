@@ -74,7 +74,8 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 	if !utils.TCPAddrCmp(c.conn.LocalAddr().String(), hs.mClient.Addr.String()) {
 		return fmt.Errorf("securecomm: Handshake IP Address and Connection IP Address don't match")
 	}
-	err = rsa.VerifyPSS(&hs.mClient.RSAPub, crypto.SHA3_256, hs.mClient.concatIdentifiersInclNonce(), hs.mClient.RSASig, nil)
+	shaM := sha3.Sum256(hs.mClient.concatIdentifiersInclNonce())
+	err = rsa.VerifyPSS(&hs.mClient.RSAPub, crypto.SHA3_256, shaM[:], hs.mClient.RSASig, nil)
 	if err != nil {
 		return err
 	}
@@ -91,7 +92,7 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 	if err != nil {
 		return err
 	}
-	shaM := sha3.Sum256(handshake.concatIdentifiersInclNonce())
+	shaM = sha3.Sum256(handshake.concatIdentifiersInclNonce())
 	s, err := rsa.SignPSS(rand.Reader, privKey, crypto.SHA3_256, shaM[:], nil)
 	if err != nil {
 		return err
