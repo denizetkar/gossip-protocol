@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"gossip/src/utils"
+	"log"
 	"sync/atomic"
 	"time"
 
@@ -67,8 +68,10 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 	}
 
 	// Sign message
+	var opts rsa.PSSOptions
+	opts.SaltLength = rsa.PSSSaltLengthAuto // for simple example
 	shaM := sha3.Sum256(handshake.concatIdentifiersInclNonce())
-	s, err := rsa.SignPSS(rand.Reader, privKey, crypto.SHA3_256, shaM[:], nil)
+	s, err := rsa.SignPSS(rand.Reader, privKey, crypto.SHA3_256, shaM[:], &opts)
 	if err != nil {
 		return err
 	}
@@ -79,6 +82,8 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 		&Message{
 			Data:      make([]byte, 0),
 			Handshake: handshake})
+	// TODO: REMOVE LOGGING.
+	log.Println("client handshake:", handshake)
 	if err != nil {
 		return err
 	}
@@ -105,7 +110,7 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 		return fmt.Errorf("securecomm: Handshake IP Address and Connection IP Address don't match")
 	}
 	shaM = sha3.Sum256(hs.mServer.concatIdentifiersInclNonce())
-	err = rsa.VerifyPSS(&hs.mServer.RSAPub, crypto.SHA3_256, shaM[:], hs.mServer.RSASig, nil)
+	err = rsa.VerifyPSS(&hs.mServer.RSAPub, crypto.SHA3_256, shaM[:], hs.mServer.RSASig, &opts)
 	if err != nil {
 		return err
 	}

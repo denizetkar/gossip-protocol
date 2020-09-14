@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"fmt"
 	"gossip/src/utils"
+	"log"
 	"sync/atomic"
 	"time"
 
@@ -56,6 +57,8 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 
 	// Read and verify client handshake
 	handshakeClient, err := c.read()
+	// TODO: REMOVE LOGGING.
+	log.Println("client handshake:", handshakeClient)
 	if err != nil {
 		return err
 	}
@@ -74,8 +77,10 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 	if !utils.TCPAddrCmp(c.conn.LocalAddr().String(), hs.mClient.Addr.String()) {
 		return fmt.Errorf("securecomm: Handshake IP Address and Connection IP Address don't match")
 	}
+	var opts rsa.PSSOptions
+	opts.SaltLength = rsa.PSSSaltLengthAuto // for simple example
 	shaM := sha3.Sum256(hs.mClient.concatIdentifiersInclNonce())
-	err = rsa.VerifyPSS(&hs.mClient.RSAPub, crypto.SHA3_256, shaM[:], hs.mClient.RSASig, nil)
+	err = rsa.VerifyPSS(&hs.mClient.RSAPub, crypto.SHA3_256, shaM[:], hs.mClient.RSASig, &opts)
 	if err != nil {
 		return err
 	}
@@ -93,7 +98,7 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 		return err
 	}
 	shaM = sha3.Sum256(handshake.concatIdentifiersInclNonce())
-	s, err := rsa.SignPSS(rand.Reader, privKey, crypto.SHA3_256, shaM[:], nil)
+	s, err := rsa.SignPSS(rand.Reader, privKey, crypto.SHA3_256, shaM[:], &opts)
 	if err != nil {
 		return err
 	}
