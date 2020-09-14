@@ -243,7 +243,7 @@ func (l *SecureListener) Accept() (net.Conn, error) {
 	if err != nil {
 		select {
 		case <-l.quit:
-			return nil, nil
+			return nil, fmt.Errorf("secure listener is closed")
 		default:
 			return nil, err
 		}

@@ -45,8 +45,8 @@ func init() {
 	centralControllerHandlers[GossipPullReplyMSG] = (*CentralController).gossipPullReplyHandler
 	centralControllerHandlers[GossiperCrashedMSG] = (*CentralController).gossiperCrashedHandler
 	centralControllerHandlers[GossiperClosedMSG] = (*CentralController).gossiperClosedHandler
-	centralControllerHandlers[APIListenerCrashedMSG] = (*CentralController).apiEndpointCrashedHandler
-	centralControllerHandlers[APIListenerClosedMSG] = (*CentralController).apiEndpointClosedHandler
+	centralControllerHandlers[APIListenerCrashedMSG] = (*CentralController).apiListenerCrashedHandler
+	centralControllerHandlers[APIListenerClosedMSG] = (*CentralController).apiListenerClosedHandler
 	centralControllerHandlers[APIEndpointCreatedMSG] = (*CentralController).apiEndpointCreatedHandler
 	centralControllerHandlers[APIEndpointCrashedMSG] = (*CentralController).apiEndpointCrashedHandler
 	centralControllerHandlers[APIEndpointClosedMSG] = (*CentralController).apiEndpointClosedHandler

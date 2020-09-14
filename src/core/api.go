@@ -126,7 +126,7 @@ func (apiListener *APIListener) listenerRoutine() {
 	for done := false; !done; {
 		conn, err := apiListener.ln.AcceptTCP()
 		if err != nil {
-			switch {
+			select {
 			case <-apiListener.sigCh:
 				done = true
 				continue
@@ -185,7 +185,7 @@ func (apiEndpoint *APIEndpoint) readerRoutine() {
 		size, err := bufioReader.Peek(2)
 		if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
 			bufioReader.Reset(reader)
-			switch {
+			select {
 			case <-apiEndpoint.sigCh:
 				done = true
 			default:
@@ -254,7 +254,7 @@ func (apiEndpoint *APIEndpoint) readerRoutine() {
 		}
 
 		// End loop gracefully
-		switch {
+		select {
 		case <-apiEndpoint.sigCh:
 			done = true
 		default:

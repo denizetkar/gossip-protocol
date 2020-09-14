@@ -131,7 +131,7 @@ func (p2pListener *P2PListener) listenerRoutine() {
 	for done := false; !done; {
 		conn, err := p2pListener.ln.Accept()
 		if err != nil {
-			switch {
+			select {
 			case <-p2pListener.sigCh:
 				done = true
 				continue
@@ -199,7 +199,7 @@ func (p2pEndpoint *P2PEndpoint) readerRoutine() {
 		var message InternalMessage
 		err := gobDecoder.Decode(&message)
 		if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
-			switch {
+			select {
 			case <-p2pEndpoint.sigCh:
 				done = true
 			default:
