@@ -78,7 +78,7 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 	// Write handshake to server
 	err = c.write(
 		&Message{
-			Data:      nil,
+			Data:      make([]byte, 0),
 			Handshake: handshake})
 	if err != nil {
 		return err
@@ -90,7 +90,7 @@ func (hs *clientHandshakeState) doFullHandshake() error {
 	if err != nil {
 		return err
 	}
-	if handshakeServer.Data != nil || handshakeServer.Handshake.IsClient == true || handshakeServer.Handshake.isValid() {
+	if len(handshakeServer.Data) != 0 || handshakeServer.Handshake.IsClient == true || !handshakeServer.Handshake.isValid() {
 		return messageError{}
 	}
 	hs.mServer = &handshakeServer.Handshake

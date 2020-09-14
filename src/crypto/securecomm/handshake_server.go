@@ -60,7 +60,7 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 	if err != nil {
 		return err
 	}
-	if handshakeClient.Data != nil || handshakeClient.Handshake.IsClient == false || handshakeClient.Handshake.isValid() {
+	if len(handshakeClient.Data) != 0 || handshakeClient.Handshake.IsClient == false || !handshakeClient.Handshake.isValid() {
 		return messageError{}
 	}
 	hs.mClient = &handshakeClient.Handshake
@@ -100,7 +100,7 @@ func (hs *serverHandshakeState) doFullHandshake() error {
 	handshake.RSASig = s
 	c.write(
 		&Message{
-			Data:      nil,
+			Data:      make([]byte, 0),
 			Handshake: handshake})
 	hs.mServer = &handshake
 
