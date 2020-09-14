@@ -11,6 +11,7 @@ import (
 	"gossip/src/datastruct/indexedset"
 	"gossip/src/datastruct/set"
 	"io"
+	"log"
 	"math"
 	"math/big"
 	mrand "math/rand"
@@ -291,6 +292,7 @@ func (membershipController *MembershipController) recover() {
 			<-membershipController.MsgInQueue
 		}
 		// send MembershipCrashedMSG to the Central controller!
+		log.Println("Membership controller -> Central controller, MembershipCrashedMSG,", err)
 		membershipController.MsgOutQueue <- InternalMessage{Type: MembershipCrashedMSG, Payload: err}
 	}
 }
@@ -317,6 +319,7 @@ func (membershipController *MembershipController) replaceViewList(newViewList *i
 	for elem := range toBeRemoved.Iterate() {
 		peer := elem.(Peer)
 		// send PeerRemoveMSG message to the Central controller!
+		log.Println("Membership controller -> Central controller, PeerRemoveMSG,", peer)
 		membershipController.MsgOutQueue <- InternalMessage{Type: PeerRemoveMSG, Payload: peer}
 
 		viewList.Remove(peer)
@@ -324,6 +327,7 @@ func (membershipController *MembershipController) replaceViewList(newViewList *i
 	for elem := range toBeAdded.Iterate() {
 		peer := elem.(Peer)
 		// send PeerAddMSG message to the Central controller!
+		log.Println("Membership controller -> Central controller, PeerAddMSG,", peer)
 		membershipController.MsgOutQueue <- InternalMessage{Type: PeerAddMSG, Payload: peer}
 
 		viewList.Add(peer)
@@ -340,6 +344,7 @@ func (membershipController *MembershipController) removePeer(peer Peer) {
 		// modify its 'viewList' without our explicit instructions. This has
 		// to be the case for the sake of eventual consistency between viewList's
 		// of both controllers.
+		log.Println("Membership controller -> Central controller, PeerRemoveMSG,", peer)
 		membershipController.MsgOutQueue <- InternalMessage{Type: PeerRemoveMSG, Payload: peer}
 	}
 	// Check if the peer exists in sampleList.
@@ -378,6 +383,7 @@ func (membershipController *MembershipController) pushRound() {
 			}
 
 			// Send the push request message to the Central controller.
+			log.Println("Membership controller -> Central controller, MembershipPushRequestMSG,", pushReq)
 			membershipController.MsgOutQueue <- InternalMessage{Type: MembershipPushRequestMSG, Payload: pushReq}
 		}
 	}
@@ -397,6 +403,7 @@ func (membershipController *MembershipController) pullRound() {
 		membershipController.pullPeers.Add(peer)
 
 		// Send the pull request message to the Central controller.
+		log.Println("Membership controller -> Central controller, MembershipPullRequestMSG,", peer)
 		membershipController.MsgOutQueue <- InternalMessage{Type: MembershipPullRequestMSG, Payload: peer}
 	}
 }
@@ -514,6 +521,7 @@ func (membershipController *MembershipController) probePeerRound() {
 	for elem := range membershipController.sampleList.Iterate() {
 		peer := elem.(Peer)
 		// Send probe peer request message to the Central controller.
+		log.Println("Membership controller -> Central controller, ProbePeerRequestMSG,", peer)
 		membershipController.MsgOutQueue <- InternalMessage{Type: ProbePeerRequestMSG, Payload: peer}
 	}
 }
@@ -533,6 +541,9 @@ func (membershipController *MembershipController) membershipRound() {
 // bootstrap puts the bootstrapper peer into the viewList and starts
 // a fresh membership round.
 func (membershipController *MembershipController) bootstrap() {
+	if membershipController.bootstrapper == "" {
+		return
+	}
 	newViewList := indexedset.New().Add(Peer{Addr: membershipController.bootstrapper})
 	membershipController.replaceViewList(newViewList)
 	membershipController.pushProbability = 0.0
@@ -603,6 +614,7 @@ func (membershipController *MembershipController) incomingPullRequestHandler(pay
 		reply.ViewList = append(reply.ViewList, peer)
 	}
 	// Send the pull reply back to the Central controller.
+	log.Println("Membership controller -> Central controller, MembershipPullReplyMSG,", reply)
 	membershipController.MsgOutQueue <- InternalMessage{Type: MembershipPullReplyMSG, Payload: reply}
 
 	return nil
@@ -642,6 +654,7 @@ func (membershipController *MembershipController) closeHandler(payload AnyMessag
 		<-membershipController.MsgInQueue
 	}
 	// send MembershipClosedMSG to the Central controller!
+	log.Println("Membership controller -> Central controller, MembershipClosedMSG")
 	membershipController.MsgOutQueue <- InternalMessage{Type: MembershipClosedMSG, Payload: void{}}
 	// Signal for graceful closure.
 	return &CloseError{}

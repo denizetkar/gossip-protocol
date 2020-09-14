@@ -145,7 +145,7 @@ func (keyValueDict KeyValueDict) GetInt64Value(key string) (int64, error) {
 }
 
 var sectionRe = regexp.MustCompile(`^\s*\[\s*([^\s]*)\s*\]\s*$`)
-var keyPairRe = regexp.MustCompile(`^\s*(.+?)\s*=\s*(.+?)\s*$`)
+var keyPairRe = regexp.MustCompile(`^\s*(.+?)\s*=\s*(.*?)\s*$`)
 
 // Parse is a function for extracting sections and key-value pairs
 // from a '.ini' file.

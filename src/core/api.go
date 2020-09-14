@@ -147,8 +147,10 @@ func (apiListener *APIListener) listenerRoutine() {
 			apiClient:   client,
 			closeOnce:   sync.Once{},
 		}
+		log.Println("API Listener -> Central controller, APIEndpointCreatedMSG,", endp)
 		apiListener.MsgOutQueue <- InternalMessage{Type: APIEndpointCreatedMSG, Payload: endp}
 	}
+	log.Println("API Listener -> Central controller, APIListenerClosedMSG")
 	apiListener.MsgOutQueue <- InternalMessage{Type: APIListenerClosedMSG, Payload: void{}}
 }
 
@@ -262,6 +264,7 @@ func (apiEndpoint *APIEndpoint) readerRoutine() {
 		}
 	}
 	payload := &APIEndpointClosedMSGPayload{endp: apiEndpoint, isReader: true}
+	log.Println("API Endpoint -> Central controller, APIEndpointClosedMSG,", payload)
 	apiEndpoint.MsgOutQueue <- InternalMessage{Type: APIEndpointClosedMSG, Payload: payload}
 }
 
@@ -291,7 +294,12 @@ func (apiEndpoint *APIEndpoint) handleGossipAnnounce(binReader io.Reader) error 
 		Item: gossipItem,
 		TTL:  ttl,
 	}
-	apiEndpoint.MsgOutQueue <- InternalMessage{Type: IncomingAPIMSG, Payload: InternalMessage{Type: GossipAnnounceMSG, Payload: payload}}
+	payload2 := InternalMessage{Type: GossipAnnounceMSG, Payload: payload}
+	log.Println("API Endpoint -> Central controller, IncomingAPIMSG,", payload2)
+	apiEndpoint.MsgOutQueue <- InternalMessage{
+		Type:    IncomingAPIMSG,
+		Payload: payload2,
+	}
 	return nil
 }
 func (apiEndpoint *APIEndpoint) handleGossipNotify(binReader io.Reader) error {
@@ -309,7 +317,12 @@ func (apiEndpoint *APIEndpoint) handleGossipNotify(binReader io.Reader) error {
 		Who:  APIClient{addr: apiEndpoint.conn.RemoteAddr().String()},
 		What: dataType,
 	}
-	apiEndpoint.MsgOutQueue <- InternalMessage{Type: IncomingAPIMSG, Payload: InternalMessage{Type: GossipNotifyMSG, Payload: payload}}
+	payload2 := InternalMessage{Type: GossipNotifyMSG, Payload: payload}
+	log.Println("API Endpoint -> Central controller, IncomingAPIMSG,", payload2)
+	apiEndpoint.MsgOutQueue <- InternalMessage{
+		Type:    IncomingAPIMSG,
+		Payload: payload2,
+	}
 	return nil
 }
 
@@ -330,7 +343,12 @@ func (apiEndpoint *APIEndpoint) handleGossipValidation(binReader io.Reader) erro
 		// Look at last bit and compare to 0
 		Valid: 0 != int(reserved[1]&1),
 	}
-	apiEndpoint.MsgOutQueue <- InternalMessage{Type: IncomingAPIMSG, Payload: InternalMessage{Type: GossipValidationMSG, Payload: payload}}
+	payload2 := InternalMessage{Type: GossipValidationMSG, Payload: payload}
+	log.Println("API Endpoint -> Central controller, IncomingAPIMSG,", payload2)
+	apiEndpoint.MsgOutQueue <- InternalMessage{
+		Type:    IncomingAPIMSG,
+		Payload: payload2,
+	}
 	return nil
 }
 func (apiEndpoint *APIEndpoint) handleGossipNotification(_payload AnyMessage) error {
@@ -394,6 +412,7 @@ func (apiEndpoint *APIEndpoint) writerRoutine() {
 		}
 	}
 	payload := &APIEndpointClosedMSGPayload{endp: apiEndpoint, isReader: false}
+	log.Println("API Endpoint -> Central controller, APIEndpointClosedMSG,", payload)
 	apiEndpoint.MsgOutQueue <- InternalMessage{Type: APIEndpointClosedMSG, Payload: payload}
 }
 
@@ -408,6 +427,7 @@ func (apiEndpoint *APIEndpoint) RunWriterGoroutine() {
 func (apiEndpoint *APIEndpoint) Close() error {
 	apiEndpoint.closeOnce.Do(func() {
 		// Send an InternalMessage to the writer to close it.
+		log.Println("Central controller -> API Endpoint, APIEndpointCloseMSG,", apiEndpoint.apiClient.addr)
 		apiEndpoint.MsgInQueue <- InternalMessage{Type: APIEndpointCloseMSG, Payload: void{}}
 		// Closing the 'sigCh' channel signals the reader to close itself.
 		close(apiEndpoint.sigCh)
@@ -437,6 +457,7 @@ func (apiListener *APIListener) recover() {
 		}
 
 		// send APIListenerCrashedMSG to the Central controller!
+		log.Println("API Listener -> Central controller, APIListenerCrashedMSG,", err)
 		apiListener.MsgOutQueue <- InternalMessage{Type: APIListenerCrashedMSG, Payload: err}
 	}
 }
@@ -458,6 +479,7 @@ func (apiEndpoint *APIEndpoint) recover(isReader bool) {
 
 		// send APIListenerCrashedMSG to the Central controller!
 		payload := &APIEndpointCrashedMSGPayload{endp: apiEndpoint, err: err, isReader: isReader}
+		log.Println("API Endpoint -> Central controller, APIEndpointCrashedMSG,", payload)
 		apiEndpoint.MsgOutQueue <- InternalMessage{Type: APIEndpointCrashedMSG, Payload: payload}
 	}
 }

@@ -9,7 +9,6 @@ import (
 	"gossip/src/crypto/securecomm"
 	"gossip/src/datastruct/indexedmap"
 	"gossip/src/datastruct/set"
-	"gossip/src/utils"
 	"log"
 	"math"
 	mrand "math/rand"
@@ -154,8 +153,8 @@ const (
 	alpha, beta             = 0.45, 0.45
 	inQueueSize             = 1024
 	outQueueSize            = 64
-	membershipRoundDuration = 10 * time.Second
-	gossipRoundDuration     = 500 * time.Millisecond
+	membershipRoundDuration = 6 * time.Second
+	gossipRoundDuration     = 2000 * time.Millisecond
 	connectionTimeout       = 2 * time.Second
 	closureTimeout          = 6 * time.Second
 	closureCheckTimeout     = 500 * time.Millisecond
@@ -186,24 +185,24 @@ func NewCentralController(
 	}
 	// Check the validity of each TCP\IP address provided
 	_, err = net.ResolveTCPAddr("tcp", bootstrapper)
-	if err != nil {
+	if err != nil && bootstrapper != "" {
 		return nil, err
 	}
 	// Get the outbound ip address for TCP/UDP connections.
-	ipAddr, err := utils.GetOutboundIP()
+	// ipAddr, err := utils.GetOutboundIP()
+	// if err != nil {
+	// 	return nil, err
+	// }
+	_, err = net.ResolveTCPAddr("tcp", apiAddr)
 	if err != nil {
 		return nil, err
 	}
-	addr, err := net.ResolveTCPAddr("tcp", apiAddr)
+	// apiAddr = fmt.Sprintf("%s:%d", ipAddr, addr.Port)
+	_, err = net.ResolveTCPAddr("tcp", p2pAddr)
 	if err != nil {
 		return nil, err
 	}
-	apiAddr = fmt.Sprintf("%s:%d", ipAddr, addr.Port)
-	addr, err = net.ResolveTCPAddr("tcp", p2pAddr)
-	if err != nil {
-		return nil, err
-	}
-	p2pAddr = fmt.Sprintf("%s:%d", ipAddr, addr.Port)
+	// p2pAddr = fmt.Sprintf("%s:%d", ipAddr, addr.Port)
 	// Check the validity of the integer arguments
 	if cacheSize == 0 || degree == 0 || degree > 10 {
 		return nil, fmt.Errorf("invalid CentralController arguments, 'cache_size': %d, 'degree': %d", cacheSize, degree)
@@ -324,6 +323,7 @@ func (centralController *CentralController) peerAddHandler(payload AnyMessage) e
 			peer.Addr, centralController.p2pConfig,
 			make(chan InternalMessage, outQueueSize),
 			centralController.MsgInQueue, true)
+		log.Println("Central controller -> Central controller, OutgoingP2PCreatedMSG,", endp)
 		centralController.MsgInQueue <- InternalMessage{Type: OutgoingP2PCreatedMSG, Payload: endp}
 	}(peer)
 
@@ -384,9 +384,11 @@ func (centralController *CentralController) probePeerRequestHandler(payload AnyM
 	_, isMember := centralController.awaitingRemovalViewList[peer]
 	_, isMember2 := centralController.activelyCreatedPeers[peer]
 	if centralController.viewList.IsMember(peer) || isMember || isMember2 {
+		payload := ProbePeerReplyMSGPayload{Probed: peer, ProbeResult: true}
+		log.Println("Central controller -> Membership controller, ProbePeerReplyMSG,", payload)
 		centralController.membershipController.MsgInQueue <- InternalMessage{
 			Type:    ProbePeerReplyMSG,
-			Payload: ProbePeerReplyMSGPayload{Probed: peer, ProbeResult: true},
+			Payload: payload,
 		}
 		return nil
 	}
@@ -397,9 +399,11 @@ func (centralController *CentralController) probePeerRequestHandler(payload AnyM
 		conn, err := net.DialTimeout("tcp", peer.Addr, connectionTimeout)
 		probeResult := (err == nil)
 		conn.Close()
+		payload := CentralProbePeerReplyMSGPayload{Probed: peer, ProbeResult: probeResult}
+		log.Println("Central controller -> Central controller, CentralProbePeerReplyMSG,", payload)
 		centralController.MsgInQueue <- InternalMessage{
 			Type:    CentralProbePeerReplyMSG,
-			Payload: CentralProbePeerReplyMSGPayload{Probed: peer, ProbeResult: probeResult},
+			Payload: payload,
 		}
 	}(peer)
 
@@ -429,6 +433,7 @@ func (centralController *CentralController) membershipPushRequestHandler(payload
 		return nil
 	}
 	// Send the internal message to the p2p endpoint.
+	log.Println("Central controller -> P2P Endpoint, MembershipPushRequestMSG,", payload)
 	info.endpoint.MsgInQueue <- InternalMessage{Type: MembershipPushRequestMSG, Payload: payload}
 
 	return nil
@@ -457,6 +462,7 @@ func (centralController *CentralController) membershipPullRequestHandler(payload
 		return nil
 	}
 	// Send the internal message to the p2p endpoint.
+	log.Println("Central controller -> P2P Endpoint, MembershipPullRequestMSG,", peer)
 	info.endpoint.MsgInQueue <- InternalMessage{Type: MembershipPullRequestMSG, Payload: peer}
 
 	return nil
@@ -479,6 +485,7 @@ func (centralController *CentralController) membershipPullReplyHandler(payload A
 		return nil
 	}
 	// Send the internal message to the p2p endpoint.
+	log.Println("Central controller -> P2P Endpoint, MembershipPullReplyMSG,", payload)
 	info.endpoint.MsgInQueue <- InternalMessage{Type: MembershipPullReplyMSG, Payload: payload}
 
 	return nil
@@ -538,9 +545,11 @@ func (centralController *CentralController) randomPeerListRequestHandler(payload
 		info.usageCounter++
 	}
 	// Send the random list of peers as a response back to the Gossiper submodule.
+	payload2 := RandomPeerListReplyMSGPayload{Related: msg.Related, RandomPeers: RandomPeers}
+	log.Println("Central controller -> Gossiper, RandomPeerListReplyMSG,", payload2)
 	centralController.gossiper.MsgInQueue <- InternalMessage{
 		Type:    RandomPeerListReplyMSG,
-		Payload: RandomPeerListReplyMSGPayload{Related: msg.Related, RandomPeers: RandomPeers},
+		Payload: payload2,
 	}
 
 	return nil
@@ -605,9 +614,11 @@ func (centralController *CentralController) gossipNotificationHandler(payload An
 		return nil
 	}
 	// Send the internal message to the api endpoint.
+	payload2 := APINotificationMSGPayload{Who: msg.Who, Item: msg.Item, ID: msg.ID}
+	log.Println("Central controller -> API Endpoint, APINotificationMSG,", payload2)
 	info.endpoint.MsgInQueue <- InternalMessage{
 		Type:    APINotificationMSG,
-		Payload: APINotificationMSGPayload{Who: msg.Who, Item: msg.Item, ID: msg.ID},
+		Payload: payload2,
 	}
 
 	return nil
@@ -636,6 +647,7 @@ func (centralController *CentralController) gossipPushHandler(payload AnyMessage
 		return nil
 	}
 	// Send the internal message to the p2p endpoint.
+	log.Println("Central controller -> P2P Endpoint, GossipPushMSG,", payload)
 	info.endpoint.MsgInQueue <- InternalMessage{Type: GossipPushMSG, Payload: payload}
 
 	return nil
@@ -664,6 +676,7 @@ func (centralController *CentralController) gossipPullRequestHandler(payload Any
 		return nil
 	}
 	// Send the internal message to the p2p endpoint.
+	log.Println("Central controller -> P2P Endpoint, GossipPullRequestMSG,", payload)
 	info.endpoint.MsgInQueue <- InternalMessage{Type: GossipPullRequestMSG, Payload: payload}
 
 	return nil
@@ -686,6 +699,7 @@ func (centralController *CentralController) gossipPullReplyHandler(payload AnyMe
 		return nil
 	}
 	// Send the internal message to the p2p endpoint.
+	log.Println("Central controller -> P2P Endpoint, GossipPullReplyMSG,", payload)
 	info.endpoint.MsgInQueue <- InternalMessage{Type: GossipPullReplyMSG, Payload: payload}
 
 	return nil
@@ -837,6 +851,7 @@ func (centralController *CentralController) apiEndpointClosed(
 			log.Println("API endpoint", endp.apiClient.addr, "is closed.")
 		}
 		// Let the Gossiper know about the removed endpoint.
+		log.Println("Central controller -> Gossiper, GossipUnnofityMSG,", endp.apiClient)
 		centralController.gossiper.MsgInQueue <- InternalMessage{
 			Type: GossipUnnofityMSG, Payload: endp.apiClient}
 		// Check if all submodules (goroutines) are closed.
@@ -966,6 +981,7 @@ func (centralController *CentralController) outgoingPeerCompletelyClosed(
 	} else if !isInRemovalList {
 		// If this p2p endpoint was not removed by the Membership controller, then
 		// let the Membership controller know about the abruptly removed endpoint.
+		log.Println("Central controller -> Membership controller, PeerDisconnectedMSG,", peer)
 		centralController.membershipController.MsgInQueue <- InternalMessage{
 			Type: PeerDisconnectedMSG, Payload: peer}
 		if !info.hasCrashed {
@@ -1152,6 +1168,7 @@ func (centralController *CentralController) outgoingP2PCreatedHandler(payload An
 	// If this peer was attempted to be removed before creation
 	// was done, then let it be removed.
 	if isToBeRemoved {
+		log.Println("Central controller -> Central controller, PeerRemoveMSG,", endp.peer)
 		centralController.MsgInQueue <- InternalMessage{Type: PeerRemoveMSG, Payload: endp.peer}
 	}
 
@@ -1174,13 +1191,16 @@ func (centralController *CentralController) centralProbePeerReplyHandler(payload
 	}
 	delete(centralController.activelyProbedPeers, msg.Probed)
 	// Send the probe results back to the Membership controller.
+	payload2 := ProbePeerReplyMSGPayload{Probed: msg.Probed, ProbeResult: msg.ProbeResult}
+	log.Println("Central controller -> Membership controller, ProbePeerReplyMSG,", payload2)
 	centralController.membershipController.MsgInQueue <- InternalMessage{
 		Type:    ProbePeerReplyMSG,
-		Payload: ProbePeerReplyMSGPayload{Probed: msg.Probed, ProbeResult: msg.ProbeResult},
+		Payload: payload2,
 	}
 	// If this peer was attempted to be added before probing
 	// was done, then let it be added.
 	if addPeer {
+		log.Println("Central controller -> Central controller, PeerAddMSG,", msg.Probed)
 		centralController.MsgInQueue <- InternalMessage{Type: PeerAddMSG, Payload: msg.Probed}
 	}
 
@@ -1200,18 +1220,21 @@ func (centralController *CentralController) incomingAPIHandler(message AnyMessag
 		if !ok {
 			return nil
 		}
+		log.Println("Central controller -> Gossiper, GossipAnnounceMSG,", im)
 		centralController.gossiper.MsgInQueue <- im
 	case GossipNotifyMSG:
 		_, ok := im.Payload.(GossipNotifyMSGPayload)
 		if !ok {
 			return nil
 		}
+		log.Println("Central controller -> Gossiper, GossipNotifyMSG,", im)
 		centralController.gossiper.MsgInQueue <- im
 	case GossipValidationMSG:
 		_, ok := im.Payload.(GossipValidationMSGPayload)
 		if !ok {
 			return nil
 		}
+		log.Println("Central controller -> Gossiper, GossipValidationMSG,", im)
 		centralController.gossiper.MsgInQueue <- im
 	default:
 		log.Println("unexpected incoming API message of type", im.Type)
@@ -1227,22 +1250,31 @@ func (centralController *CentralController) incomingP2PHandler(message AnyMessag
 	im := message.(InternalMessage)
 	switch im.Type {
 	case MembershipIncomingPushRequestMSG:
+		log.Println("Central controller -> Membership controller, MembershipIncomingPushRequestMSG,", im)
 		centralController.membershipController.MsgInQueue <- im
 	case MembershipIncomingPullRequestMSG:
+		log.Println("Central controller -> Membership controller, MembershipIncomingPullRequestMSG,", im)
 		centralController.membershipController.MsgInQueue <- im
 	case MembershipIncomingPullReplyMSG:
+		log.Println("Central controller -> Membership controller, MembershipIncomingPullReplyMSG,", im)
 		centralController.membershipController.MsgInQueue <- im
 	case GossipIncomingPushMSG:
+		log.Println("Central controller -> Gossiper, GossipIncomingPushMSG,", im)
 		centralController.gossiper.MsgInQueue <- im
 	case GossipIncomingPullRequestMSG:
+		log.Println("Central controller -> Gossiper, GossipIncomingPullRequestMSG,", im)
 		centralController.gossiper.MsgInQueue <- im
 	case GossipIncomingPullReplyMSG:
+		log.Println("Central controller -> Gossiper, GossipIncomingPullReplyMSG,", im)
 		centralController.gossiper.MsgInQueue <- im
 	case GossipAnnounceMSG:
+		log.Println("Central controller -> Gossiper, GossipAnnounceMSG,", im)
 		centralController.gossiper.MsgInQueue <- im
 	case GossipNotifyMSG:
+		log.Println("Central controller -> Gossiper, GossipNotifyMSG,", im)
 		centralController.gossiper.MsgInQueue <- im
 	case GossipValidationMSG:
+		log.Println("Central controller -> Gossiper, GossipValidationMSG,", im)
 		centralController.gossiper.MsgInQueue <- im
 	}
 	return nil
@@ -1271,7 +1303,9 @@ func (centralController *CentralController) closeHandler(payload AnyMessage) err
 	// closed all other submodules (goroutines)!
 	centralController.apiListener.Close()
 	centralController.p2pListener.Close()
+	log.Println("Central controller -> Membership controller, MembershipCloseMSG")
 	centralController.membershipController.MsgInQueue <- InternalMessage{Type: MembershipCloseMSG, Payload: void{}}
+	log.Println("Central controller -> Gossiper, GossiperCloseMSG")
 	centralController.gossiper.MsgInQueue <- InternalMessage{Type: GossiperCloseMSG, Payload: void{}}
 	for _, valueAndIndex := range centralController.viewList.Iterate() {
 		info := valueAndIndex.Value.(*PeerInfoCentral)
@@ -1294,6 +1328,7 @@ func (centralController *CentralController) closeHandler(payload AnyMessage) err
 
 	centralController.state.isStopping = true
 	time.AfterFunc(closureTimeout, func() {
+		log.Println("Central controller -> Central controller, CentralCrashMSG")
 		centralController.MsgInQueue <- InternalMessage{
 			Type: CentralCrashMSG, Payload: fmt.Errorf("graceful closure timed out")}
 	})
@@ -1310,6 +1345,7 @@ func (centralController *CentralController) Run() {
 	signal.Notify(sigs, os.Interrupt)
 	go func() {
 		<-sigs
+		log.Println("Central controller -> Central controller, CentralCloseMSG")
 		centralController.MsgInQueue <- InternalMessage{Type: CentralCloseMSG, Payload: void{}}
 	}()
 

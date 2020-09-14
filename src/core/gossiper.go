@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"gossip/src/datastruct/set"
 	mathutils "gossip/src/utils/math"
+	"log"
 	"math"
 	"time"
 )
@@ -123,6 +124,7 @@ func (gossiper *Gossiper) recover() {
 			<-gossiper.MsgInQueue
 		}
 		// send GossiperCrashedMSG to the Central controller!
+		log.Println("Gossiper -> Central controller, GossiperCrashedMSG,", err)
 		gossiper.MsgOutQueue <- InternalMessage{Type: GossiperCrashedMSG, Payload: err}
 	}
 }
@@ -141,14 +143,16 @@ func (gossiper *Gossiper) pushRound() {
 		}
 		// Gossip the item.
 		for _, peerIndex := range peerIndexes {
+			payload := GossipPushMSGPayload{
+				Item:    &item,
+				State:   info.s.state,
+				Counter: info.s.counter,
+				To:      info.peerList[peerIndex],
+			}
+			log.Println("Gossiper -> Central controller, GossipPushMSG,", payload)
 			gossiper.MsgOutQueue <- InternalMessage{
-				Type: GossipPushMSG,
-				Payload: GossipPushMSGPayload{
-					Item:    &item,
-					State:   info.s.state,
-					Counter: info.s.counter,
-					To:      info.peerList[peerIndex],
-				},
+				Type:    GossipPushMSG,
+				Payload: payload,
 			}
 		}
 		// Change the state of gossip item to reflect this new round.
@@ -166,9 +170,11 @@ func (gossiper *Gossiper) pushRound() {
 	for _, itemToRemove := range itemsToRemove {
 		// Release peers allocated to this gossip item.
 		releasedPeers := gossiper.gossipList[*itemToRemove].peerList
+		payload := RandomPeerListReleaseMSGPayload{releasedPeers}
+		log.Println("Gossiper -> Central controller, RandomPeerListReleaseMSG,", payload)
 		gossiper.MsgOutQueue <- InternalMessage{
 			Type:    RandomPeerListReleaseMSG,
-			Payload: RandomPeerListReleaseMSGPayload{releasedPeers},
+			Payload: payload,
 		}
 		// Remove the item from gossipList into oldGossipList.
 		delete(gossiper.gossipList, *itemToRemove)
@@ -186,14 +192,17 @@ func (gossiper *Gossiper) pullRound() {
 		peer := elem.(Peer)
 
 		// Send the pull request message to the Central controller.
+		log.Println("Gossiper -> Central controller, GossipPullRequestMSG,", peer)
 		gossiper.MsgOutQueue <- InternalMessage{Type: GossipPullRequestMSG, Payload: peer}
 	}
 	gossiper.pullPeers = gossiper.nextRoundPullPeers
 	gossiper.nextRoundPullPeers = set.New()
 	// Ask from the Central controller for more pull peer for the next round.
+	payload := RandomPeerListRequestMSGPayload{Related: nil, Num: int(gossiper.degree)}
+	log.Println("Gossiper -> Central controller, RandomPeerListRequestMSG,", payload)
 	gossiper.MsgOutQueue <- InternalMessage{
 		Type:    RandomPeerListRequestMSG,
-		Payload: RandomPeerListRequestMSGPayload{Related: nil, Num: int(gossiper.degree)},
+		Payload: payload,
 	}
 }
 
@@ -204,9 +213,11 @@ func (gossiper *Gossiper) notifyClients(item *GossipItem) {
 	for client, cInfo := range gossiper.apiClientsToNotify {
 		if cInfo.notifyDataTypes.IsMember(item.DataType) {
 			// Send GossipNotificationMSG to the Central controller.
+			payload := GossipNotificationMSGPayload{Who: client, Item: item, ID: cInfo.nextAvailableID}
+			log.Println("Gossiper -> Central controller, GossipNotificationMSG,", payload)
 			gossiper.MsgOutQueue <- InternalMessage{
 				Type:    GossipNotificationMSG,
-				Payload: GossipNotificationMSGPayload{Who: client, Item: item, ID: cInfo.nextAvailableID}}
+				Payload: payload}
 			cInfo.validationMap[cInfo.nextAvailableID] = item
 			cInfo.nextAvailableID++
 		}
@@ -237,18 +248,22 @@ func (gossiper *Gossiper) updateRound() {
 						s: GossipItemState{state: MedianCounterStateB, counter: 1, medianRule: 0, ttl: gossiper.maxTTL},
 					}
 					// Ask for (degree * maxTTL) random peers for this gossip item.
+					payload := RandomPeerListRequestMSGPayload{Related: &item, Num: int(gossiper.degree) * int(gossiper.maxTTL)}
+					log.Println("Gossiper -> Central controller, RandomPeerListRequestMSG,", payload)
 					gossiper.MsgOutQueue <- InternalMessage{
 						Type:    RandomPeerListRequestMSG,
-						Payload: RandomPeerListRequestMSGPayload{Related: &item, Num: int(gossiper.degree) * int(gossiper.maxTTL)}}
+						Payload: payload}
 				case MedianCounterStateC:
 					gossiper.gossipList[item] = &GossipItemInfoGossiper{
 						s: GossipItemState{state: MedianCounterStateC, counter: 0, medianRule: 0, ttl: gossiper.maxTTL},
 					}
 					// Ask for (degree * cMax) random peers for this gossip item, since it cannot be gossiped
 					// for more than cMax more gossip rounds in state C.
+					payload := RandomPeerListRequestMSGPayload{Related: &item, Num: int(gossiper.degree) * int(gossiper.mcConfig.cMax)}
+					log.Println("Gossiper -> Central controller, RandomPeerListRequestMSG,", payload)
 					gossiper.MsgOutQueue <- InternalMessage{
 						Type:    RandomPeerListRequestMSG,
-						Payload: RandomPeerListRequestMSGPayload{Related: &item, Num: int(gossiper.degree) * int(gossiper.mcConfig.cMax)}}
+						Payload: payload}
 				}
 			}
 		}
@@ -313,9 +328,11 @@ func (gossiper *Gossiper) randomPeerListReplyHandler(payload AnyMessage) error {
 		info.peerList = reply.RandomPeers
 	} else {
 		// These random peers are neither for pull nor for push requests. Just release them.
+		payload := RandomPeerListReleaseMSGPayload{reply.RandomPeers}
+		log.Println("Gossiper -> Central controller, RandomPeerListReleaseMSG,", payload)
 		gossiper.MsgOutQueue <- InternalMessage{
 			Type:    RandomPeerListReleaseMSG,
-			Payload: RandomPeerListReleaseMSGPayload{reply.RandomPeers}}
+			Payload: payload}
 	}
 
 	return nil
@@ -358,9 +375,11 @@ func (gossiper *Gossiper) announceHandler(payload AnyMessage) error {
 	gossiper.gossipList[*anno.Item] = &GossipItemInfoGossiper{
 		s: GossipItemState{state: MedianCounterStateB, counter: 1, medianRule: 0, ttl: ttl}}
 	// Ask for (degree * ttl) random peers for this gossip item.
+	payload2 := RandomPeerListRequestMSGPayload{Related: anno.Item, Num: int(gossiper.degree) * int(ttl)}
+	log.Println("Gossiper -> Central controller, RandomPeerListRequestMSG,", payload2)
 	gossiper.MsgOutQueue <- InternalMessage{
 		Type:    RandomPeerListRequestMSG,
-		Payload: RandomPeerListRequestMSGPayload{Related: anno.Item, Num: int(gossiper.degree) * int(ttl)}}
+		Payload: payload2}
 
 	return nil
 }
@@ -499,8 +518,10 @@ func (gossiper *Gossiper) incomingPullRequestHandler(payload AnyMessage) error {
 		itemList = append(itemList, &GossipItemExtended{Item: &item, State: info.s.state, Counter: info.s.counter})
 	}
 	// Send the GossipPullReplyMSG to the Central controller.
+	payload2 := GossipPullReplyMSGPayload{To: pr.From, ItemList: itemList}
+	log.Println("Gossiper -> Central controller, GossipPullReplyMSG,", payload2)
 	gossiper.MsgOutQueue <- InternalMessage{
-		Type: GossipPullReplyMSG, Payload: GossipPullReplyMSGPayload{To: pr.From, ItemList: itemList}}
+		Type: GossipPullReplyMSG, Payload: payload2}
 
 	return nil
 }
@@ -540,6 +561,7 @@ func (gossiper *Gossiper) closeHandler(payload AnyMessage) error {
 		<-gossiper.MsgInQueue
 	}
 	// send GossiperClosedMSG to the Central controller!
+	log.Println("Gossiper -> Central controller, GossiperClosedMSG")
 	gossiper.MsgOutQueue <- InternalMessage{Type: GossiperClosedMSG, Payload: void{}}
 	// Signal for graceful closure.
 	return &CloseError{}

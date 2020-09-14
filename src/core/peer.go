@@ -153,8 +153,10 @@ func (p2pListener *P2PListener) listenerRoutine() {
 			peer:        peer,
 			closeOnce:   sync.Once{},
 		}
+		log.Println("P2P Listener -> Central controller, IncomingP2PCreatedMSG,", endp)
 		p2pListener.MsgOutQueue <- InternalMessage{Type: IncomingP2PCreatedMSG, Payload: endp}
 	}
+	log.Println("P2P Listener -> Central controller, P2PListenerClosedMSG")
 	p2pListener.MsgOutQueue <- InternalMessage{Type: P2PListenerClosedMSG, Payload: void{}}
 }
 
@@ -212,30 +214,35 @@ func (p2pEndpoint *P2PEndpoint) readerRoutine() {
 		}
 		// Using IncomingP2PMSG message for all messages to be able to use a single handler.
 		// The Payload is the whole message, including the right message type.
+		var im *InternalMessage = nil
 		switch message.Type {
 		case MembershipPushRequestMSG:
-			p2pEndpoint.MsgOutQueue <- InternalMessage{Type: IncomingP2PMSG, Payload: InternalMessage{Type: MembershipIncomingPushRequestMSG, Payload: message.Payload}}
+			im = &InternalMessage{Type: IncomingP2PMSG, Payload: InternalMessage{Type: MembershipIncomingPushRequestMSG, Payload: message.Payload}}
 		case MembershipPullRequestMSG:
 			payload := &MembershipIncomingPullRequestMSGPayload{From: p2pEndpoint.peer}
-			p2pEndpoint.MsgOutQueue <- InternalMessage{Type: IncomingP2PMSG, Payload: InternalMessage{Type: MembershipIncomingPullRequestMSG, Payload: payload}}
+			im = &InternalMessage{Type: IncomingP2PMSG, Payload: InternalMessage{Type: MembershipIncomingPullRequestMSG, Payload: payload}}
 		case MembershipPullReplyMSG:
 			m := message.Payload.(MembershipPullReplyMSGPayload)
 			payload := &MembershipIncomingPullReplyMSGPayload{From: p2pEndpoint.peer, ViewList: m.ViewList}
-			p2pEndpoint.MsgOutQueue <- InternalMessage{Type: IncomingP2PMSG, Payload: InternalMessage{Type: MembershipIncomingPullReplyMSG, Payload: payload}}
+			im = &InternalMessage{Type: IncomingP2PMSG, Payload: InternalMessage{Type: MembershipIncomingPullReplyMSG, Payload: payload}}
 		case GossipPushMSG:
 			m := message.Payload.(GossipPushMSGPayload)
 			payload := &GossipItemExtended{Item: m.Item, State: m.State, Counter: m.Counter}
-			p2pEndpoint.MsgOutQueue <- InternalMessage{Type: IncomingP2PMSG, Payload: InternalMessage{Type: GossipIncomingPushMSG, Payload: payload}}
+			im = &InternalMessage{Type: IncomingP2PMSG, Payload: InternalMessage{Type: GossipIncomingPushMSG, Payload: payload}}
 		case GossipPullRequestMSG:
 			payload := &GossipIncomingPullRequestMSGPayload{From: p2pEndpoint.peer}
-			p2pEndpoint.MsgOutQueue <- InternalMessage{Type: IncomingP2PMSG, Payload: InternalMessage{Type: GossipIncomingPullRequestMSG, Payload: payload}}
+			im = &InternalMessage{Type: IncomingP2PMSG, Payload: InternalMessage{Type: GossipIncomingPullRequestMSG, Payload: payload}}
 		case GossipPullReplyMSG:
 			m := message.Payload.(GossipPullReplyMSGPayload)
 			payload := &GossipIncomingPullReplyMSGPayload{From: p2pEndpoint.peer, ItemList: m.ItemList}
-			p2pEndpoint.MsgOutQueue <- InternalMessage{Type: IncomingP2PMSG, Payload: InternalMessage{Type: GossipIncomingPullReplyMSG, Payload: payload}}
+			im = &InternalMessage{Type: IncomingP2PMSG, Payload: InternalMessage{Type: GossipIncomingPullReplyMSG, Payload: payload}}
 		default:
 			log.Println("P2PEndpoint: Error in readerRoutine(): invalid internal message type used")
 			break
+		}
+		if im != nil {
+			log.Println("P2P Endpoint -> Central controller, IncomingP2PMSG,", *im)
+			p2pEndpoint.MsgOutQueue <- *im
 		}
 		// End loop gracefully
 		switch {
@@ -246,6 +253,7 @@ func (p2pEndpoint *P2PEndpoint) readerRoutine() {
 		}
 	}
 	payload := &P2PEndpointClosedMSGPayload{endp: p2pEndpoint, isReader: true}
+	log.Println("P2P Endpoint -> Central controller, P2PEndpointClosedMSG,", payload)
 	p2pEndpoint.MsgOutQueue <- InternalMessage{Type: P2PEndpointClosedMSG, Payload: payload}
 }
 
@@ -287,6 +295,7 @@ func (p2pEndpoint *P2PEndpoint) writerRoutine() {
 		}
 	}
 	payload := &P2PEndpointClosedMSGPayload{endp: p2pEndpoint, isReader: false}
+	log.Println("P2P Endpoint -> Central controller, P2PEndpointClosedMSG,", payload)
 	p2pEndpoint.MsgOutQueue <- InternalMessage{Type: P2PEndpointClosedMSG, Payload: payload}
 }
 
@@ -301,6 +310,7 @@ func (p2pEndpoint *P2PEndpoint) RunWriterGoroutine() {
 func (p2pEndpoint *P2PEndpoint) Close() error {
 	p2pEndpoint.closeOnce.Do(func() {
 		// Send an InternalMessage to the writer for closing it!
+		log.Println("Central controller -> P2P Endpoint, P2PEndpointCloseMSG,", p2pEndpoint.peer.Addr)
 		p2pEndpoint.MsgInQueue <- InternalMessage{Type: P2PEndpointCloseMSG, Payload: void{}}
 		// Closing the 'sigCh' channel signals the reader to close itself.
 		close(p2pEndpoint.sigCh)
@@ -330,6 +340,7 @@ func (p2pListener *P2PListener) recover() {
 		}
 
 		// send P2PListenerCrashedMSG to the Central controller!
+		log.Println("P2P Listener -> Central controller, P2PListenerCrashedMSG,", err)
 		p2pListener.MsgOutQueue <- InternalMessage{Type: P2PListenerCrashedMSG, Payload: err}
 	}
 }
@@ -351,6 +362,7 @@ func (p2pEndpoint *P2PEndpoint) recover(isReader bool) {
 
 		// send P2PListenerCrashedMSG to the Central controller!
 		payload := &P2PEndpointCrashedMSGPayload{endp: p2pEndpoint, err: err, isReader: isReader}
+		log.Println("P2P Endpoint -> Central controller, P2PEndpointCrashedMSG,", payload)
 		p2pEndpoint.MsgOutQueue <- InternalMessage{Type: P2PEndpointCrashedMSG, Payload: payload}
 	}
 }
