@@ -1291,15 +1291,6 @@ func (centralController *CentralController) incomingP2PHandler(message AnyMessag
 	case GossipIncomingPullReplyMSG:
 		log.Println("Central controller -> Gossiper, GossipIncomingPullReplyMSG,", im)
 		centralController.gossiper.MsgInQueue <- im
-	case GossipAnnounceMSG:
-		log.Println("Central controller -> Gossiper, GossipAnnounceMSG,", im)
-		centralController.gossiper.MsgInQueue <- im
-	case GossipNotifyMSG:
-		log.Println("Central controller -> Gossiper, GossipNotifyMSG,", im)
-		centralController.gossiper.MsgInQueue <- im
-	case GossipValidationMSG:
-		log.Println("Central controller -> Gossiper, GossipValidationMSG,", im)
-		centralController.gossiper.MsgInQueue <- im
 	}
 	return nil
 }

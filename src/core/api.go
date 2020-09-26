@@ -232,7 +232,7 @@ func (apiEndpoint *APIEndpoint) readerRoutine() {
 
 		switch header.MessageType {
 		case GossipAnnounce:
-			err := apiEndpoint.handleGossipAnnounce(binReader)
+			err := apiEndpoint.handleGossipAnnounce(binReader, n-4)
 			if err != nil {
 				log.Println("Error in readerRoutine():", err)
 				continue
@@ -259,7 +259,7 @@ func (apiEndpoint *APIEndpoint) readerRoutine() {
 	apiEndpoint.MsgOutQueue <- InternalMessage{Type: APIEndpointClosedMSG, Payload: payload}
 }
 
-func (apiEndpoint *APIEndpoint) handleGossipAnnounce(binReader io.Reader) error {
+func (apiEndpoint *APIEndpoint) handleGossipAnnounce(binReader io.Reader, size int) error {
 	gossipItem := &GossipItem{}
 	var ttl uint8
 	err := binary.Read(binReader, binary.BigEndian, &ttl)
@@ -275,7 +275,7 @@ func (apiEndpoint *APIEndpoint) handleGossipAnnounce(binReader io.Reader) error 
 	if err != nil {
 		return err
 	}
-	var data []byte
+	data := make([]byte, size-4)
 	err = binary.Read(binReader, binary.BigEndian, &data)
 	gossipItem.Data = string(data)
 	if err != nil {
