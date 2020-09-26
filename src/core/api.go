@@ -131,7 +131,8 @@ func (apiListener *APIListener) listenerRoutine() {
 				done = true
 				continue
 			default:
-				break
+				log.Println("error in API Listener:", err)
+				continue
 			}
 		}
 
@@ -140,11 +141,11 @@ func (apiListener *APIListener) listenerRoutine() {
 			addr: conn.RemoteAddr().String(),
 		}
 		endp := &APIEndpoint{
-			conn:        conn,
-			sigCh:       make(chan interface{}),
-			MsgInQueue:  make(chan InternalMessage, inQueueSize),
-			MsgOutQueue: make(chan InternalMessage, outQueueSize),
 			apiClient:   client,
+			conn:        conn,
+			MsgInQueue:  make(chan InternalMessage, outQueueSize),
+			MsgOutQueue: apiListener.MsgOutQueue,
+			sigCh:       make(chan interface{}),
 			closeOnce:   sync.Once{},
 		}
 		log.Println("API Listener -> Central controller, APIEndpointCreatedMSG,", endp)
@@ -280,7 +281,7 @@ func (apiEndpoint *APIEndpoint) handleGossipAnnounce(binReader io.Reader) error 
 	if err != nil {
 		return err
 	}
-	payload := &GossipAnnounceMSGPayload{
+	payload := GossipAnnounceMSGPayload{
 		Item: gossipItem,
 		TTL:  ttl,
 	}
@@ -303,7 +304,7 @@ func (apiEndpoint *APIEndpoint) handleGossipNotify(binReader io.Reader) error {
 	if err != nil {
 		return err
 	}
-	payload := &GossipNotifyMSGPayload{
+	payload := GossipNotifyMSGPayload{
 		Who:  APIClient{addr: apiEndpoint.conn.RemoteAddr().String()},
 		What: dataType,
 	}
@@ -327,7 +328,7 @@ func (apiEndpoint *APIEndpoint) handleGossipValidation(binReader io.Reader) erro
 	if err != nil {
 		return err
 	}
-	payload := &GossipValidationMSGPayload{
+	payload := GossipValidationMSGPayload{
 		Who: APIClient{addr: apiEndpoint.conn.RemoteAddr().String()},
 		ID:  messageID,
 		// Look at last bit and compare to 0
@@ -469,7 +470,7 @@ func (apiEndpoint *APIEndpoint) recover(isReader bool) {
 
 		// send APIListenerCrashedMSG to the Central controller!
 		payload := APIEndpointCrashedMSGPayload{endp: apiEndpoint, err: err, isReader: isReader}
-		log.Println("P2P Endpoint -> Central controller, P2PEndpointCrashedMSG,", apiEndpoint.apiClient.addr, err, isReader)
+		log.Println("API Endpoint -> Central controller, APIEndpointCrashedMSG,", apiEndpoint.apiClient.addr, err, isReader)
 		apiEndpoint.MsgOutQueue <- InternalMessage{Type: APIEndpointCrashedMSG, Payload: payload}
 	}
 }

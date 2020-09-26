@@ -144,7 +144,8 @@ func (p2pListener *P2PListener) listenerRoutine() {
 				done = true
 				continue
 			default:
-				break
+				log.Println("error in P2P Listener:", err)
+				continue
 			}
 		}
 
@@ -153,12 +154,12 @@ func (p2pListener *P2PListener) listenerRoutine() {
 			Addr: conn.RemoteAddr().String(),
 		}
 		endp := &P2PEndpoint{
-			isOutgoing:  false,
-			conn:        conn.(*securecomm.SecureConn),
-			sigCh:       make(chan interface{}),
-			MsgInQueue:  make(chan InternalMessage, inQueueSize),
-			MsgOutQueue: p2pListener.MsgOutQueue,
 			peer:        peer,
+			conn:        conn.(*securecomm.SecureConn),
+			MsgInQueue:  make(chan InternalMessage, outQueueSize),
+			MsgOutQueue: p2pListener.MsgOutQueue,
+			sigCh:       make(chan interface{}),
+			isOutgoing:  false,
 			closeOnce:   sync.Once{},
 		}
 		log.Println("P2P Listener -> Central controller, IncomingP2PCreatedMSG,", endp)
@@ -227,22 +228,22 @@ func (p2pEndpoint *P2PEndpoint) readerRoutine() {
 		case MembershipPushRequestMSG:
 			im = &InternalMessage{Type: IncomingP2PMSG, Payload: InternalMessage{Type: MembershipIncomingPushRequestMSG, Payload: message.Payload}}
 		case MembershipPullRequestMSG:
-			payload := &MembershipIncomingPullRequestMSGPayload{From: p2pEndpoint.peer}
+			payload := MembershipIncomingPullRequestMSGPayload{From: p2pEndpoint.peer}
 			im = &InternalMessage{Type: IncomingP2PMSG, Payload: InternalMessage{Type: MembershipIncomingPullRequestMSG, Payload: payload}}
 		case MembershipPullReplyMSG:
 			m := message.Payload.(MembershipPullReplyMSGPayload)
-			payload := &MembershipIncomingPullReplyMSGPayload{From: p2pEndpoint.peer, ViewList: m.ViewList}
+			payload := MembershipIncomingPullReplyMSGPayload{From: p2pEndpoint.peer, ViewList: m.ViewList}
 			im = &InternalMessage{Type: IncomingP2PMSG, Payload: InternalMessage{Type: MembershipIncomingPullReplyMSG, Payload: payload}}
 		case GossipPushMSG:
 			m := message.Payload.(GossipPushMSGPayload)
-			payload := &GossipItemExtended{Item: m.Item, State: m.State, Counter: m.Counter}
+			payload := GossipItemExtended{Item: m.Item, State: m.State, Counter: m.Counter}
 			im = &InternalMessage{Type: IncomingP2PMSG, Payload: InternalMessage{Type: GossipIncomingPushMSG, Payload: payload}}
 		case GossipPullRequestMSG:
-			payload := &GossipIncomingPullRequestMSGPayload{From: p2pEndpoint.peer}
+			payload := GossipIncomingPullRequestMSGPayload{From: p2pEndpoint.peer}
 			im = &InternalMessage{Type: IncomingP2PMSG, Payload: InternalMessage{Type: GossipIncomingPullRequestMSG, Payload: payload}}
 		case GossipPullReplyMSG:
 			m := message.Payload.(GossipPullReplyMSGPayload)
-			payload := &GossipIncomingPullReplyMSGPayload{From: p2pEndpoint.peer, ItemList: m.ItemList}
+			payload := GossipIncomingPullReplyMSGPayload{From: p2pEndpoint.peer, ItemList: m.ItemList}
 			im = &InternalMessage{Type: IncomingP2PMSG, Payload: InternalMessage{Type: GossipIncomingPullReplyMSG, Payload: payload}}
 		default:
 			log.Println("P2PEndpoint: Error in readerRoutine(): invalid internal message type used")
@@ -281,7 +282,7 @@ func (p2pEndpoint *P2PEndpoint) writerRoutine() {
 				done = true
 				continue
 			} else if allowedMSGs.IsMember(im.Type) {
-				err := gobEncoder.Encode(im)
+				err := gobEncoder.Encode(&im)
 				if err != nil {
 					log.Println("P2PEndpoint: Error in writerRoutine():", err)
 					continue
